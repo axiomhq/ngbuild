@@ -21,7 +21,7 @@ func main() {
 		fmt.Println("Slack OAuth credentials and hostname required")
 	}
 
-	slack.Init(*hostname, *clientID, *clientSecret)
+	slack.New(*hostname, *clientID, *clientSecret)
 
 	if err := http.ListenAndServe(":http", nil); err != nil {
 		fmt.Println(err.Error())

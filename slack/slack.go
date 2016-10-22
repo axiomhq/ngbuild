@@ -22,82 +22,90 @@ type Config struct {
 	Token string `json:"token"`
 }
 
-var (
-	clientLock   = sync.RWMutex{}
+type Slack struct {
+	clientLock   *sync.RWMutex
 	client       *slack.Client
 	clientID     string
 	clientSecret string
-	errNoClient  = errors.New("Slack client is not authenticated")
 	hostname     string
+}
+
+var (
+	errNoClient  = errors.New("Slack client is not authenticated")
 	oauth2Scopes = []string{"incoming-webhook"}
 	oauth2State  = fmt.Sprintf("%d%d%d", os.Getuid(), os.Getpid(), time.Now().Unix())
 )
 
-func Init(hostname, clientID, clientSecret string) {
-	loadToken(hostname, clientID, clientSecret)
+func New(hostname, clientID, clientSecret string) *Slack {
+	s := &Slack{
+		clientLock:   &sync.RWMutex{},
+		clientID:     clientID,
+		clientSecret: clientSecret,
+		hostname:     hostname,
+	}
 
-	http.HandleFunc("/cb/auth/slack", handleSlackAuth)
+	s.loadToken()
+
+	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
+
+	return s
 }
 
 // Try and load an existing token, otherwise print out instructions
 // for the user to log-in the app
-func loadToken(host, id, secret string) {
-	hostname = host
-	clientID = id
-	clientSecret = secret
-
+func (s *Slack) loadToken() {
 	name := getConfigFilePath()
 	cfg := Config{}
 
 	if _, err := os.Stat(name); err != nil {
-		printAuthHelp()
+		s.printAuthHelp()
 	} else if data, err := ioutil.ReadFile(name); err != nil {
 		printWarning("Unable to load config - %s", err.Error())
-		printAuthHelp()
+		s.printAuthHelp()
 	} else if err := json.Unmarshal(data, &cfg); err != nil {
 		printWarning("Unable to unmarshal config - %s", err.Error())
 	} else if cfg.Token == "" {
-		printAuthHelp()
+		s.printAuthHelp()
 	} else {
-		setClient(cfg.Token)
+		s.setClient(cfg.Token)
 	}
 }
 
-func setClient(token string) {
-	clientLock.Lock()
-	defer clientLock.Unlock()
+func (s *Slack) setClient(token string) {
+	s.clientLock.Lock()
+	defer s.clientLock.Unlock()
 
-	client = slack.New(token)
+	s.client = slack.New(token)
 }
 
-func getClient() (*slack.Client, error) {
-	clientLock.RLock()
-	defer clientLock.RUnlock()
+func (s *Slack) getClient() (*slack.Client, error) {
+	s.clientLock.RLock()
+	defer s.clientLock.RUnlock()
 
-	if client != nil {
-		return client, nil
+	if s.client != nil {
+		return s.client, nil
 	}
 	return nil, errNoClient
 }
 
-func getOAuth2Config() *oauth2.Config {
+func (s *Slack) getOAuth2Config() *oauth2.Config {
 	return &oauth2.Config{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
+		ClientID:     s.clientID,
+		ClientSecret: s.clientSecret,
 		Endpoint:     oslack.Endpoint,
-		RedirectURL:  fmt.Sprintf("https://%s/cb/auth/slack", hostname),
+		RedirectURL:  fmt.Sprintf("https://%s/cb/auth/slack", s.hostname),
 		Scopes:       oauth2Scopes,
 	}
 }
 
-func printAuthHelp() {
-	cfg := getOAuth2Config()
+func (s *Slack) printAuthHelp() {
+	cfg := s.getOAuth2Config()
 
 	printInfo("This app must be authenticated, please visit the following URL to authenticate this app:")
 	fmt.Println(cfg.AuthCodeURL(oauth2State))
 }
 
-func saveConfig(cfg *Config) {
+func (s *Slack) saveConfig(cfg *Config) {
 	name := getConfigFilePath()
 
 	if data, err := json.Marshal(cfg); err != nil {
@@ -110,31 +118,33 @@ func saveConfig(cfg *Config) {
 //
 // HTTP Callbacks
 //
-func handleSlackAuth(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+func (s *Slack) handleSlackAuth() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
 
-	state := q.Get("state")
-	if state != oauth2State {
-		printWarning("OAuth2 `state` was incorrect, something bad happened between Slack and us")
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		state := q.Get("state")
+		if state != oauth2State {
+			printWarning("OAuth2 `state` was incorrect, something bad happened between Slack and us")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		code := q.Get("code")
+		cfg := s.getOAuth2Config()
+
+		token, err := cfg.Exchange(context.TODO(), code)
+		if err != nil {
+			printWarning("Unable to authenticate with Slack: %s", err.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		s.saveConfig(&Config{Token: token.AccessToken})
+
+		s.setClient(token.AccessToken)
+
+		w.Write([]byte("Thanks! You can close this tab now."))
 	}
-
-	code := q.Get("code")
-	cfg := getOAuth2Config()
-
-	token, err := cfg.Exchange(context.TODO(), code)
-	if err != nil {
-		printWarning("Unable to authenticate with Slack: %s", err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	saveConfig(&Config{Token: token.AccessToken})
-
-	setClient(token.AccessToken)
-
-	w.Write([]byte("Thanks! You can close this tab now."))
 }
 
 //
