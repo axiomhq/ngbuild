@@ -18,6 +18,19 @@ import (
 	"github.com/nlopes/slack"
 )
 
+// TODO:
+//  - Save failed build info so it can be looked up
+//  - Handle actions webhook
+//  - Better code re-use, message builders func with the basics done already
+//  - Add support for fixed builds
+//  - Use a build-config to get all the info, not just hard-coded
+
+var (
+	errNoClient  = errors.New("Slack client is not authenticated")
+	oauth2Scopes = []string{"bot", "chat:write:bot", "files:write:user"}
+	oauth2State  = fmt.Sprintf("%d%d%d", os.Getuid(), os.Getpid(), time.Now().Unix())
+)
+
 type Config struct {
 	Token string `json:"token"`
 }
@@ -30,12 +43,6 @@ type Slack struct {
 	hostname     string
 }
 
-var (
-	errNoClient  = errors.New("Slack client is not authenticated")
-	oauth2Scopes = []string{"incoming-webhook"}
-	oauth2State  = fmt.Sprintf("%d%d%d", os.Getuid(), os.Getpid(), time.Now().Unix())
-)
-
 func New(hostname, clientID, clientSecret string) *Slack {
 	s := &Slack{
 		clientLock:   &sync.RWMutex{},
@@ -47,6 +54,7 @@ func New(hostname, clientID, clientSecret string) *Slack {
 	s.loadToken()
 
 	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
+	http.HandleFunc("/cb/slack", s.handleSlackAction())
 
 	return s
 }
@@ -147,6 +155,14 @@ func (s *Slack) handleSlackAuth() http.HandlerFunc {
 	}
 }
 
+func (s *Slack) handleSlackAction() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, _ := ioutil.ReadAll(r.Body)
+		fmt.Println(string(data))
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
 //
 // Util funcs, should be plugged into main app
 //
@@ -164,4 +180,98 @@ func printInfo(message string, args ...interface{}) {
 
 func printWarning(message string, args ...interface{}) {
 	fmt.Printf("WARN Slack - "+message+"\n", args...)
+}
+
+//
+// Hooks for various actions
+//
+
+func (s *Slack) BuildSucceeded() {
+	client, err := s.getClient()
+	if err != nil {
+		return
+	}
+
+	params := slack.PostMessageParameters{
+		Attachments: []slack.Attachment{
+			slack.Attachment{
+				Color:      "#36a64f",
+				Fallback:   "Pull Request #24 (Bootstrap the repo) *passed*",
+				AuthorName: "gordallott/ngbuild:bootstrap",
+				AuthorLink: "https://github.com/gordallott/ngbuild/tree/bootstrap",
+				Title:      "#24: Boostrap the repo: PASSED",
+				TitleLink:  "https://github.com/watchly/ngbuild/pull/24",
+				Fields: []slack.AttachmentField{
+					slack.AttachmentField{
+						Title: "Tests Passed",
+						Value: "249",
+						Short: true,
+					},
+					slack.AttachmentField{
+						Title: "Time Taken",
+						Value: "12m52s",
+						Short: true,
+					},
+				},
+			},
+		},
+	}
+
+	id, timestamp, err := client.PostMessage("testing", "", params)
+	if err != nil {
+		printWarning("%s(%d): %+v", id, timestamp, err)
+	}
+}
+
+func (s *Slack) BuildFailed() {
+	client, err := s.getClient()
+	if err != nil {
+		return
+	}
+
+	params := slack.PostMessageParameters{
+		Attachments: []slack.Attachment{
+			slack.Attachment{
+				Color:      "#bb2c32",
+				CallbackID: "<build token>",
+				Fallback:   "Pull Request #24 (Bootstrap the repo) *failed*",
+				AuthorName: "gordallott/ngbuild:bootstrap",
+				AuthorLink: "https://github.com/gordallott/ngbuild/tree/bootstrap",
+				Title:      "#24: Boostrap the repo",
+				TitleLink:  "https://github.com/watchly/ngbuild/pull/24",
+				Fields: []slack.AttachmentField{
+					slack.AttachmentField{
+						Title: "Tests Failed",
+						Value: "2",
+						Short: true,
+					},
+					slack.AttachmentField{
+						Title: "Time Taken",
+						Value: "13m52s",
+						Short: true,
+					},
+				},
+				Actions: []slack.AttachmentAction{
+					slack.AttachmentAction{
+						Name:  "log",
+						Text:  "View Build Log",
+						Type:  "button",
+						Value: "log",
+					},
+					slack.AttachmentAction{
+						Name:  "rebuild",
+						Text:  "Rebuild",
+						Type:  "button",
+						Style: "danger",
+						Value: "rebuild",
+					},
+				},
+			},
+		},
+	}
+
+	id, timestamp, err := client.PostMessage("testing", "", params)
+	if err != nil {
+		printWarning("Error sending message: %+v", id, timestamp, err)
+	}
 }
