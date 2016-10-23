@@ -21,6 +21,9 @@ var (
 )
 
 type (
+	// EventHandler can be used to cancel an event added with Listen
+	EventHandler uint32
+
 	// App is defined by $NGBUILD_WORKSPACE/apps/$appname/config.yaml
 	// Apps will define different builds, for different projects or different kinds of builds or whatever
 	// Config has $NGBUILD_WORKSPACE/config.yaml as a parent and then applies
@@ -35,7 +38,10 @@ type (
 
 		// Listen will provide a channel to select on for a given regular expression
 		// returned map is the captured groups and values
-		Listen(event string) <-chan map[string]string
+		// the returned EventHandler can be used to cancel a listener
+		Listen(event string, listener func(map[string]string)) EventHandler
+
+		RemoveEventHandler(EventHandler)
 
 		// NewBuild will be used by github and the like to create new builds for this app whenever they deem so
 		NewBuild(group string, config *BuildConfig) (token string, err error)

@@ -34,8 +34,12 @@ func (a *app) SendEvent(event string) {
 
 // Listen will provide a channel to select on for a given regular expression
 // returned map is the captured groups and values
-func (a *app) Listen(event string) <-chan map[string]string {
-	return make(chan map[string]string, 1)
+func (a *app) Listen(event string, listener func(map[string]string)) EventHandler {
+	return 0
+}
+
+func (a *app) RemoveEventHandler(EventHandler) {
+
 }
 
 func (a *app) NewBuild(group string, config *BuildConfig) (token string, err error) {
@@ -43,6 +47,8 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 		return "", errors.New("a is nil")
 	}
 
+	a.m.Lock()
+	defer a.m.Unlock()
 	for {
 		token = generateToken()
 		if build, err := a.GetBuild(token); err == nil {
@@ -55,10 +61,8 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 		break
 	}
 
-	build := newBuild(token, config)
-	a.m.Lock()
+	build := newBuild(a, token, config)
 	a.builds[group] = append(a.builds[group], build)
-	a.m.Unlock()
 
 	return token, nil
 }
