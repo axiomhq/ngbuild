@@ -23,8 +23,12 @@ func (a *app) Name() string {
 
 // Config will apply the config at namespace onto the given conf structure
 // consider this like json.Unmarshal()
-func (a *app) Config(namespace string, conf interface{}) error {
-	return nil
+func (a *app) Config(integrationName string, conf interface{}) error {
+	if a == nil {
+		return errors.New("a is nil")
+	}
+
+	return applyIntegrationConfig(a.name, integrationName, conf)
 }
 
 // SendEvent will send the given string on the apps event bus
