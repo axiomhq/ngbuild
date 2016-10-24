@@ -37,12 +37,13 @@ var (
 
 type (
 	Slack struct {
-		clientLock   *sync.RWMutex
+		m            *sync.RWMutex
 		client       *slack.Client
 		clientID     string
 		clientSecret string
 		hostname     string
 		channel      string
+		apps         []core.App
 	}
 
 	config struct {
@@ -57,11 +58,11 @@ type (
 
 func New(hostname, clientID, clientSecret string) *Slack {
 	s := &Slack{
-		clientLock:   &sync.RWMutex{},
+		m:            &sync.RWMutex{},
 		clientID:     clientID,
 		clientSecret: clientSecret,
 		hostname:     hostname,
-		channel:      "testing",
+		channel:      "sodding",
 	}
 
 	s.loadToken()
@@ -85,7 +86,11 @@ func (s *Slack) ProvideFor(core.Build, string) error {
 }
 
 func (s *Slack) AttachToApp(app core.App) error {
+	s.m.Lock()
+	defer s.m.Unlock()
+
 	app.Listen(core.SignalBuildComplete, s.onBuildComplete(app))
+	s.apps = append(s.apps, app)
 	return nil
 }
 
@@ -109,39 +114,17 @@ func (s *Slack) onBuildComplete(app core.App) func(map[string]string) {
 //
 // Hooks for various actions & message creation
 //
-func (s *Slack) BuildSucceeded(core.App, core.Build) {
+func (s *Slack) BuildSucceeded(app core.App, build core.Build) {
 	client, err := s.getClient()
 	if err != nil {
 		printWarning("Slack client is not authenticated")
-		return
 	}
 
-	params := slack.PostMessageParameters{
-		Attachments: []slack.Attachment{
-			slack.Attachment{
-				Color:     "#36a64f",
-				Fallback:  "Pull Request #24 (Bootstrap the repo) *passed*",
-				Title:     "#24: Boostrap the repo: PASSED",
-				TitleLink: "https://github.com/watchly/ngbuild/pull/24",
-				Fields: []slack.AttachmentField{
-					slack.AttachmentField{
-						Title: "Tests Passed",
-						Value: "249",
-						Short: true,
-					},
-					slack.AttachmentField{
-						Title: "Time Taken",
-						Value: "12m52s",
-						Short: true,
-					},
-				},
-			},
-		},
-	}
+	params := s.getBaseMessageParams(app, build, true)
 
-	id, timestamp, err := client.PostMessage(s.channel, "", params)
+	_, _, err = client.PostMessage(s.channel, "", *params)
 	if err != nil {
-		printWarning("%s(%d): %+v", id, timestamp, err)
+		printWarning("Error sending message: %s", err.Error)
 	}
 }
 
@@ -153,9 +136,9 @@ func (s *Slack) BuildFailed(app core.App, build core.Build) {
 
 	params := s.getBaseMessageParams(app, build, false)
 
-	id, timestamp, err := client.PostMessage(s.channel, "", *params)
+	_, _, err = client.PostMessage(s.channel, "", *params)
 	if err != nil {
-		printWarning("Error sending message: %+v", id, timestamp, err)
+		printWarning("Error sending message: %s", err.Error)
 	}
 }
 
@@ -256,16 +239,25 @@ func (s *Slack) handleSlackAction() http.HandlerFunc {
 		}
 
 		action := actionData.Actions[0]
+		token := actionData.CallbackID
 
 		switch action.Value {
 		case actionValueRebuild:
-			printWarning("Rebuild %s - not implemented", actionData.CallbackID)
+			text := fmt.Sprintf(":arrows_counterclockwise: _*%s* requested a rebuild_", actionData.User.Name)
 
-			// Respond to the request
+			if app, build := s.buildForToken(token); app != nil && build != nil {
+				if _, err := build.NewBuild(); err != nil {
+					text = fmt.Sprintf(":cry: Unable to start build: %s", err.Error())
+				}
+			} else {
+				text = fmt.Sprintf(":confused: No matching builds for token %s", token)
+			}
+
+			// Update the existing message so people don't keep requesting rebuilds
 			params := messageParams{}
 			params.Attachments = actionData.OriginalMessage.Attachments
 			params.Attachments = append(params.Attachments, slack.Attachment{
-				Text:       fmt.Sprintf(":arrows_counterclockwise: _*%s* requested a rebuild_", actionData.User.Name),
+				Text:       text,
 				Color:      params.Attachments[0].Color,
 				MarkdownIn: []string{"text"},
 			})
@@ -288,6 +280,18 @@ func (s *Slack) handleSlackAction() http.HandlerFunc {
 //
 // Internal
 //
+func (s *Slack) buildForToken(token string) (core.App, core.Build) {
+	s.m.RLock()
+	defer s.m.RUnlock()
+
+	for _, a := range s.apps {
+		if build, _ := a.GetBuild(token); build != nil {
+			return a, build
+		}
+	}
+
+	return nil, nil
+}
 
 func (s *Slack) loadToken() {
 	// Try and load an existing token, otherwise print out instructions
@@ -310,15 +314,15 @@ func (s *Slack) loadToken() {
 }
 
 func (s *Slack) setClient(token string) {
-	s.clientLock.Lock()
-	defer s.clientLock.Unlock()
+	s.m.Lock()
+	defer s.m.Unlock()
 
 	s.client = slack.New(token)
 }
 
 func (s *Slack) getClient() (*slack.Client, error) {
-	s.clientLock.RLock()
-	defer s.clientLock.RUnlock()
+	s.m.RLock()
+	defer s.m.RUnlock()
 
 	if s.client != nil {
 		return s.client, nil

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/watchly/ngbuild/core"
 	"github.com/watchly/ngbuild/integrations/slack"
 )
 
@@ -22,12 +21,14 @@ func main() {
 		fmt.Println("Slack OAuth credentials and hostname required")
 	}
 
-	app := core.NewApp("ngbuild-slack")
-	build := core.NewBuild("pulls/24", nil)
+	// FIXME: Uncomment when fixed
+	// app := core.NewApp("ngbuild-slack")
+	// token, _ := app.NewBuild("pulls/24", nil)
+	// build, _ := app.GetBuild(token)
 
-	s := slack.New(*hostname, *clientID, *clientSecret)
-	s.BuildSucceeded(app, build)
-	//s.BuildFailed(nil, nil)
+	slack.New(*hostname, *clientID, *clientSecret)
+
+	// s.BuildFailed(app, build)
 
 	if err := http.ListenAndServe(":http", nil); err != nil {
 		fmt.Println(err.Error())
