@@ -18,13 +18,6 @@ import (
 	"github.com/watchly/ngbuild/core"
 )
 
-// TODO:
-//  - Save failed build info so it can be looked up
-//  - Handle actions webhook
-//  - Better code re-use, message builders func with the basics done already
-//  - Add support for fixed builds
-//  - Use a build-config to get all the info, not just hard-coded
-
 const (
 	actionValueRebuild = "rebuild"
 )
@@ -46,13 +39,18 @@ type (
 		apps         []core.App
 	}
 
-	config struct {
+	tokenCache struct {
 		Token   string `json:"token"`
 		Webhook string `json:"webhook"`
 	}
 
 	messageParams struct {
 		Attachments []slack.Attachment `json:"attachments"`
+	}
+
+	config struct {
+		Channel   string `json:"channel"`
+		OnlyFixed bool   `json:"onlyFixed"`
 	}
 )
 
@@ -69,6 +67,8 @@ func New(hostname, clientID, clientSecret string) *Slack {
 
 	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
 	http.HandleFunc("/cb/slack", s.handleSlackAction())
+
+	core.RegisterIntegration(s)
 
 	return s
 }
@@ -94,6 +94,10 @@ func (s *Slack) AttachToApp(app core.App) error {
 	return nil
 }
 
+func (s *Slack) Shutdown() {
+
+}
+
 func (s *Slack) onBuildComplete(app core.App) func(map[string]string) {
 	return func(values map[string]string) {
 		token := values["token"]
@@ -115,28 +119,49 @@ func (s *Slack) onBuildComplete(app core.App) func(map[string]string) {
 // Hooks for various actions & message creation
 //
 func (s *Slack) BuildSucceeded(app core.App, build core.Build) {
-	client, err := s.getClient()
-	if err != nil {
-		printWarning("Slack client is not authenticated")
-	}
-
-	params := s.getBaseMessageParams(app, build, true)
-
-	_, _, err = client.PostMessage(s.channel, "", *params)
-	if err != nil {
-		printWarning("Error sending message: %s", err.Error)
-	}
+	// FIXME: Support only fixed builds
+	s.PostBuildMessage(app, build, true)
 }
 
 func (s *Slack) BuildFailed(app core.App, build core.Build) {
-	client, err := s.getClient()
-	if err != nil {
-		printWarning("Slack client is not authenticated")
+	s.PostBuildMessage(app, build, false)
+}
+
+func (s *Slack) PostBuildMessage(app core.App, build core.Build, succeeded bool) {
+	// Remove in prod
+	channel := "testing"
+
+	cfg := config{}
+	if err := app.Config("slack", &cfg); err != nil {
+		printWarning("Unable to load channel")
+	} else {
+		if cfg.Channel != "" {
+			channel = cfg.Channel
+		}
+
+		if cfg.OnlyFixed && succeeded {
+			history := build.History()
+			hl := len(history)
+			if hl > 0 {
+				if lastBuild := history[hl-1]; lastBuild != nil {
+					if code, err := lastBuild.ExitCode(); code == 0 && err == nil {
+						// Last build wasn't broken so don't do anything
+						return
+					}
+				}
+			}
+		}
 	}
 
-	params := s.getBaseMessageParams(app, build, false)
+	params := s.getBaseMessageParams(app, build, succeeded)
 
-	_, _, err = client.PostMessage(s.channel, "", *params)
+	client, err := s.getClient()
+	if err != nil {
+		printWarning(err.Error())
+		return
+	}
+
+	_, _, err = client.PostMessage(channel, "", *params)
 	if err != nil {
 		printWarning("Error sending message: %s", err.Error)
 	}
@@ -215,7 +240,7 @@ func (s *Slack) handleSlackAuth() http.HandlerFunc {
 			return
 		}
 
-		s.saveConfig(&config{Token: res.AccessToken, Webhook: res.IncomingWebhook.URL})
+		s.saveConfig(&tokenCache{Token: res.AccessToken, Webhook: res.IncomingWebhook.URL})
 
 		s.setClient(res.AccessToken)
 
@@ -297,7 +322,7 @@ func (s *Slack) loadToken() {
 	// Try and load an existing token, otherwise print out instructions
 	// for the user to log-in the app
 	name := getConfigFilePath()
-	cfg := config{}
+	cfg := tokenCache{}
 
 	if _, err := os.Stat(name); err != nil {
 		s.printAuthHelp()
@@ -349,7 +374,7 @@ func (s *Slack) printAuthHelp() {
 	fmt.Println("")
 }
 
-func (s *Slack) saveConfig(cfg *config) {
+func (s *Slack) saveConfig(cfg *tokenCache) {
 	name := getConfigFilePath()
 
 	if data, err := json.Marshal(cfg); err != nil {
