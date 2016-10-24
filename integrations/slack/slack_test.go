@@ -47,7 +47,10 @@ func TestBasics(t *testing.T) {
 func TestAttachToApp(t *testing.T) {
 	assert := assert.New(t)
 
-	s := Slack{}
+	s := Slack{
+		clientID:     "id",
+		clientSecret: "secret",
+	}
 
 	app := &mocks.App{}
 

@@ -38,7 +38,6 @@ type (
 		clientID     string
 		clientSecret string
 		hostname     string
-		channel      string
 		apps         []core.App
 	}
 
@@ -52,20 +51,17 @@ type (
 	}
 
 	config struct {
-		Channel   string `json:"channel"`
-		OnlyFixed bool   `json:"onlyFixed"`
+		ClientID     string `json:"clientId"`
+		ClientSecret string `json:"clientSecret"`
+		Channel      string `json:"channel"`
+		OnlyFixed    bool   `json:"onlyFixed"`
 	}
 )
 
-func New(hostname, clientID, clientSecret string) *Slack {
+func New(hostname string) *Slack {
 	s := &Slack{
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		hostname:     hostname,
-		channel:      "sodding",
+		hostname: hostname,
 	}
-
-	s.loadToken()
 
 	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
 	http.HandleFunc("/cb/slack", s.handleSlackAction())
@@ -90,6 +86,19 @@ func (s *Slack) ProvideFor(core.Build, string) error {
 func (s *Slack) AttachToApp(app core.App) error {
 	s.m.Lock()
 	defer s.m.Unlock()
+
+	// Don't have to do this everytime
+	if s.clientID == "" {
+		cfg := config{}
+		app.Config("slack", &cfg)
+		if cfg.ClientID == "" || cfg.ClientSecret == "" {
+			printWarning("Configuration for app `%s` does not have Slack OAuth credentials", app.Name())
+		} else {
+			s.clientID = cfg.ClientID
+			s.clientSecret = cfg.ClientSecret
+			s.loadToken()
+		}
+	}
 
 	app.Listen(core.SignalBuildComplete, s.onBuildComplete(app))
 	s.apps = append(s.apps, app)
@@ -121,7 +130,6 @@ func (s *Slack) onBuildComplete(app core.App) func(map[string]string) {
 // Hooks for various actions & message creation
 //
 func (s *Slack) BuildSucceeded(app core.App, build core.Build) {
-	// FIXME: Support only fixed builds
 	s.PostBuildMessage(app, build, true)
 }
 
