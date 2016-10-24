@@ -15,6 +15,7 @@ import (
 	oslack "golang.org/x/oauth2/slack"
 
 	"github.com/nlopes/slack"
+	"github.com/watchly/ngbuild/core"
 )
 
 // TODO:
@@ -35,11 +36,6 @@ var (
 )
 
 type (
-	config struct {
-		Token   string `json:"token"`
-		Webhook string `json:"webhook"`
-	}
-
 	Slack struct {
 		clientLock   *sync.RWMutex
 		client       *slack.Client
@@ -47,6 +43,15 @@ type (
 		clientSecret string
 		hostname     string
 		channel      string
+	}
+
+	config struct {
+		Token   string `json:"token"`
+		Webhook string `json:"webhook"`
+	}
+
+	messageParams struct {
+		Attachments []slack.Attachment `json:"attachments"`
 	}
 )
 
@@ -67,9 +72,226 @@ func New(hostname, clientID, clientSecret string) *Slack {
 	return s
 }
 
-// Try and load an existing token, otherwise print out instructions
-// for the user to log-in the app
+func (s *Slack) Identifier() string {
+	return "slack"
+}
+
+func (s *Slack) IsProvider(string) bool {
+	return false
+}
+
+func (s *Slack) ProvideFor(core.Build, string) error {
+	return errors.New("Slack can't provide, man")
+}
+
+func (s *Slack) AttachToApp(app core.App) error {
+	app.Listen(core.SignalBuildComplete, s.onBuildComplete(app))
+	return nil
+}
+
+func (s *Slack) onBuildComplete(app core.App) func(map[string]string) {
+	return func(values map[string]string) {
+		token := values["token"]
+		if build, err := app.GetBuild(token); err != nil {
+			printWarning("Build %s does not exist: %s", token, err.Error())
+		} else {
+			if code, err := build.ExitCode(); err != nil {
+				printWarning("BuildCompleted fired before build was completed: %s", err.Error())
+			} else if code == 0 {
+				s.BuildSucceeded(app, build)
+			} else {
+				s.BuildFailed(app, build)
+			}
+		}
+	}
+}
+
+//
+// Hooks for various actions & message creation
+//
+func (s *Slack) BuildSucceeded(core.App, core.Build) {
+	client, err := s.getClient()
+	if err != nil {
+		printWarning("Slack client is not authenticated")
+		return
+	}
+
+	params := slack.PostMessageParameters{
+		Attachments: []slack.Attachment{
+			slack.Attachment{
+				Color:     "#36a64f",
+				Fallback:  "Pull Request #24 (Bootstrap the repo) *passed*",
+				Title:     "#24: Boostrap the repo: PASSED",
+				TitleLink: "https://github.com/watchly/ngbuild/pull/24",
+				Fields: []slack.AttachmentField{
+					slack.AttachmentField{
+						Title: "Tests Passed",
+						Value: "249",
+						Short: true,
+					},
+					slack.AttachmentField{
+						Title: "Time Taken",
+						Value: "12m52s",
+						Short: true,
+					},
+				},
+			},
+		},
+	}
+
+	id, timestamp, err := client.PostMessage(s.channel, "", params)
+	if err != nil {
+		printWarning("%s(%d): %+v", id, timestamp, err)
+	}
+}
+
+func (s *Slack) BuildFailed(app core.App, build core.Build) {
+	client, err := s.getClient()
+	if err != nil {
+		printWarning("Slack client is not authenticated")
+	}
+
+	params := s.getBaseMessageParams(app, build, false)
+
+	id, timestamp, err := client.PostMessage(s.channel, "", *params)
+	if err != nil {
+		printWarning("Error sending message: %+v", id, timestamp, err)
+	}
+}
+
+func (s *Slack) getBaseMessageParams(app core.App, build core.Build, succeeded bool) *slack.PostMessageParameters {
+	color := "#36a64f"
+	suffix := "*passed*"
+
+	if !succeeded {
+		color = "#bb2c32"
+		suffix = "*failed*"
+	}
+
+	// FIXME: We don't have a way to get the build config of the build, so making
+	// a fake one until we do
+	cfg := core.BuildConfig{
+		Title: "#24: Bootstrap the repo",
+		URL:   "https://github.com/ngbuild/pull/24",
+	}
+
+	params := slack.PostMessageParameters{
+		Attachments: []slack.Attachment{
+			slack.Attachment{
+				Color:      color,
+				CallbackID: build.Token(),
+				Fallback:   fmt.Sprintf("%s: %s - %s", app.Name(), cfg.Title, suffix),
+				Title:      fmt.Sprintf("%s: %s", app.Name(), cfg.Title),
+				TitleLink:  cfg.URL,
+				Fields: []slack.AttachmentField{
+					slack.AttachmentField{
+						Title: "Time Taken",
+						Value: fmt.Sprintf("%dm:%ds", int64(build.BuildTime().Minutes()), int64(build.BuildTime().Seconds())%60),
+						Short: true,
+					},
+				},
+				MarkdownIn: []string{"title"},
+			},
+		},
+	}
+
+	if !succeeded {
+		params.Attachments[0].Actions = []slack.AttachmentAction{
+			slack.AttachmentAction{
+				Name:  "rebuild",
+				Text:  "Rebuild",
+				Type:  "button",
+				Style: "danger",
+				Value: actionValueRebuild,
+			},
+		}
+	}
+
+	return &params
+}
+
+//
+// HTTP Callbacks
+//
+func (s *Slack) handleSlackAuth() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+
+		state := q.Get("state")
+		if state != oauth2State {
+			w.Write([]byte("OAuth2 `state` was incorrect, something bad happened between Slack and us"))
+			return
+		}
+
+		code := q.Get("code")
+		cfg := s.getOAuth2Config()
+
+		res, err := slack.GetOAuthResponse(cfg.ClientID, cfg.ClientSecret, code, cfg.RedirectURL, false)
+		if err != nil {
+			w.Write([]byte(fmt.Sprintf("Unable to authenticate with Slack: %s", err.Error())))
+			return
+		}
+
+		s.saveConfig(&config{Token: res.AccessToken, Webhook: res.IncomingWebhook.URL})
+
+		s.setClient(res.AccessToken)
+
+		w.Write([]byte("Thanks! You can close this tab now."))
+	}
+}
+
+func (s *Slack) handleSlackAction() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		payload := r.FormValue("payload")
+
+		actionData := slack.AttachmentActionCallback{}
+		if err := json.Unmarshal([]byte(payload), &actionData); err != nil {
+			printWarning("Unable to unmarshal Slack action callback: %s", err.Error())
+			return
+		}
+
+		if len(actionData.Actions) < 1 {
+			printWarning("No action in callback message: %s", payload)
+			return
+		}
+
+		action := actionData.Actions[0]
+
+		switch action.Value {
+		case actionValueRebuild:
+			printWarning("Rebuild %s - not implemented", actionData.CallbackID)
+
+			// Respond to the request
+			params := messageParams{}
+			params.Attachments = actionData.OriginalMessage.Attachments
+			params.Attachments = append(params.Attachments, slack.Attachment{
+				Text:       fmt.Sprintf(":arrows_counterclockwise: _*%s* requested a rebuild_", actionData.User.Name),
+				Color:      params.Attachments[0].Color,
+				MarkdownIn: []string{"text"},
+			})
+
+			// Remove original actions
+			params.Attachments[0].Actions = nil
+
+			if data, err := json.Marshal(params); err != nil {
+				printWarning("Unable to marshal JSON payload for action callback: %s", err.Error())
+			} else {
+				w.Header().Set("Content-Type", "application/json")
+				w.Write(data)
+			}
+		default:
+			printWarning("Action `%s` not supported", action.Value)
+		}
+	}
+}
+
+//
+// Internal
+//
+
 func (s *Slack) loadToken() {
+	// Try and load an existing token, otherwise print out instructions
+	// for the user to log-in the app
 	name := getConfigFilePath()
 	cfg := config{}
 
@@ -134,76 +356,6 @@ func (s *Slack) saveConfig(cfg *config) {
 }
 
 //
-// HTTP Callbacks
-//
-func (s *Slack) handleSlackAuth() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-
-		state := q.Get("state")
-		if state != oauth2State {
-			w.Write([]byte("OAuth2 `state` was incorrect, something bad happened between Slack and us"))
-			return
-		}
-
-		code := q.Get("code")
-		cfg := s.getOAuth2Config()
-
-		res, err := slack.GetOAuthResponse(cfg.ClientID, cfg.ClientSecret, code, cfg.RedirectURL, false)
-		if err != nil {
-			w.Write([]byte(fmt.Sprintf("Unable to authenticate with Slack: %s", err.Error())))
-			return
-		}
-
-		s.saveConfig(&config{Token: res.AccessToken, Webhook: res.IncomingWebhook.URL})
-
-		s.setClient(res.AccessToken)
-
-		w.Write([]byte("Thanks! You can close this tab now."))
-	}
-}
-
-func (s *Slack) handleSlackAction() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		payload := r.FormValue("payload")
-
-		actionData := slack.AttachmentActionCallback{}
-		if err := json.Unmarshal([]byte(payload), &actionData); err != nil {
-			printWarning("Unable to unmarshal Slack action callback: %s", err.Error())
-			return
-		}
-
-		if len(actionData.Actions) < 1 {
-			printWarning("No action in callback message: %s", payload)
-			return
-		}
-
-		switch actionData.Actions[0].Value {
-		case actionValueRebuild:
-			printWarning("Rebuild %s - not implemented", actionData.CallbackID)
-
-			// Respond to the request
-			params := s.getFailedMessage(true)
-			params.Attachments = append(params.Attachments, slack.Attachment{
-				Text:       fmt.Sprintf(":arrows_counterclockwise: _*%s* requested a rebuild_", actionData.User.Name),
-				Color:      params.Attachments[0].Color,
-				MarkdownIn: []string{"text"},
-			})
-			if data, err := json.Marshal(map[string]interface{}{
-				"attachments": params.Attachments,
-			}); err != nil {
-				printWarning("Unable to marshal JSON payload for action callback: %s", err.Error())
-			} else {
-				w.Header().Set("Content-Type", "application/json")
-				w.Write(data)
-			}
-		default:
-			printWarning("Action `%s` not supported", actionData.Actions[0].Value)
-		}
-	}
-}
-
-//
 // Util funcs, should be plugged into main app
 //
 func getDataDir() string {
@@ -220,98 +372,4 @@ func printInfo(message string, args ...interface{}) {
 
 func printWarning(message string, args ...interface{}) {
 	fmt.Printf("WARN Slack - "+message+"\n", args...)
-}
-
-//
-// Hooks for various actions
-//
-
-func (s *Slack) BuildSucceeded() {
-	client, err := s.getClient()
-	if err != nil {
-		return
-	}
-
-	params := slack.PostMessageParameters{
-		Attachments: []slack.Attachment{
-			slack.Attachment{
-				Color:     "#36a64f",
-				Fallback:  "Pull Request #24 (Bootstrap the repo) *passed*",
-				Title:     "#24: Boostrap the repo: PASSED",
-				TitleLink: "https://github.com/watchly/ngbuild/pull/24",
-				Fields: []slack.AttachmentField{
-					slack.AttachmentField{
-						Title: "Tests Passed",
-						Value: "249",
-						Short: true,
-					},
-					slack.AttachmentField{
-						Title: "Time Taken",
-						Value: "12m52s",
-						Short: true,
-					},
-				},
-			},
-		},
-	}
-
-	id, timestamp, err := client.PostMessage(s.channel, "", params)
-	if err != nil {
-		printWarning("%s(%d): %+v", id, timestamp, err)
-	}
-}
-
-func (s *Slack) BuildFailed() {
-	client, err := s.getClient()
-	if err != nil {
-		return
-	}
-
-	params := s.getFailedMessage(false)
-
-	id, timestamp, err := client.PostMessage(s.channel, "", *params)
-	if err != nil {
-		printWarning("Error sending message: %+v", id, timestamp, err)
-	}
-}
-
-func (s *Slack) getFailedMessage(noActions bool) *slack.PostMessageParameters {
-	params := slack.PostMessageParameters{
-		Attachments: []slack.Attachment{
-			slack.Attachment{
-				Color:      "#bb2c32",
-				CallbackID: "<build token>",
-				Fallback:   "Pull Request #24 (Bootstrap the repo) *failed*",
-				Title:      "#24: Boostrap the repo",
-				TitleLink:  "https://github.com/watchly/ngbuild/pull/24",
-				Fields: []slack.AttachmentField{
-					slack.AttachmentField{
-						Title: "Tests Failed",
-						Value: "2",
-						Short: true,
-					},
-					slack.AttachmentField{
-						Title: "Time Taken",
-						Value: "13m52s",
-						Short: true,
-					},
-				},
-				Actions: []slack.AttachmentAction{
-					slack.AttachmentAction{
-						Name:  "rebuild",
-						Text:  "Rebuild",
-						Type:  "button",
-						Style: "danger",
-						Value: actionValueRebuild,
-					},
-				},
-			},
-		},
-	}
-
-	if noActions {
-		params.Attachments[0].Actions = nil
-	}
-
-	return &params
 }
