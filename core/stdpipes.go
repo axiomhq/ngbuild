@@ -62,6 +62,8 @@ type stdpipes struct {
 
 	stdoutClosed uint64
 	stderrClosed uint64
+
+	Done chan struct{}
 }
 
 // newStdpipes will return a new stdpipes structure to manage the given pipes
@@ -72,6 +74,8 @@ func newStdpipes(stdoutPipe io.Reader, stderrPipe io.Reader) *stdpipes {
 
 		stdout: stdoutPipe,
 		stderr: stderrPipe,
+
+		Done: make(chan struct{}, 1),
 	}
 
 	go pipes.readLoop(typeStdout)
@@ -162,6 +166,10 @@ func (p *stdpipes) readLoop(pipetype int) {
 		p.m.Unlock()
 		waiter.Broadcast()
 		waiter.L.Unlock()
+	}
+
+	if p.getclosed(typeStdout) && p.getclosed(typeStderr) {
+		p.Done <- struct{}{}
 	}
 }
 

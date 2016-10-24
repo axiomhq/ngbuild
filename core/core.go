@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"time"
 )
@@ -14,10 +15,14 @@ var (
 	ErrProcessAlreadyStarted  = errors.New("Error: process already started")
 )
 
-// AppBus signals
-var (
-	SignalBuildComplete = `/build/complete/(?P<token>\w+)$`
-	SignalBuildStarted  = `/build/started/(?P<token>\w+)$`
+// AppBus signal
+const (
+	appnameRE = `app:(?P<app>\w+)`
+	tokenRE   = `token:(?P<token>\w+)`
+
+	SignalBuildComplete = `/build/` + appnameRE + `/complete/` + tokenRE + `$`
+	SignalBuildStarted  = `/build/` + appnameRE + `/started/` + tokenRE + `$`
+	EventCoreLog        = `/log/` + appnameRE + `/logtype:(?P<logtype>\w+)/log(?P<logmessage>.*)$`
 )
 
 type (
@@ -63,14 +68,15 @@ type (
 
 		Group string
 
-		// Not required block
-		// path to build.sh and test.sh
+		// Should be an executable of some sort
 		BuildRunner string
-		TestRunner  string
 
+		Integrations []Integration
+
+		// Not required block
 		Metadata map[string]string
 
-		Deadline time.Time
+		Deadline time.Duration
 	}
 
 	// Build interface
@@ -105,6 +111,8 @@ type (
 		BuildTime() time.Duration
 
 		History() []Build
+
+		Config() BuildConfig
 	}
 
 	// Integration is an interface that integrations should provide
@@ -119,7 +127,7 @@ type (
 
 		// ProvideFor will be called on the integration when it is expected to provide for a build
 		// generally this means checkout git repositories into the given directory
-		ProvideFor(b Build, directory string) error
+		ProvideFor(c *BuildConfig, directory string) error
 
 		// AttachToApp will order the ingeration to do whatever it does, with the given app.
 		AttachToApp(App) error
@@ -134,4 +142,28 @@ var integrations = []Integration{}
 // RegisterIntegration will register your integration with core
 func RegisterIntegration(integration Integration) {
 	integrations = append(integrations, integration)
+}
+
+// Provision will find an integration that will provide for the given build and get it to
+// provision into a directory
+func Provision(build Build) (provisionedDirectory string, err error) {
+	return "", nil
+}
+
+func loginfof(str string, args ...interface{}) (ret string) {
+	ret = fmt.Sprintf("info: "+str+"\n", args...)
+	fmt.Printf(ret)
+	return ret
+}
+
+func logwarnf(str string, args ...interface{}) (ret string) {
+	ret = fmt.Sprintf("warn: "+str+"\n", args...)
+	fmt.Printf(ret)
+	return ret
+}
+
+func logcritf(str string, args ...interface{}) (ret string) {
+	ret = fmt.Sprintf("crit: "+str+"\n", args...)
+	fmt.Printf(ret)
+	return ret
 }

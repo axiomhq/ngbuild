@@ -9,17 +9,20 @@ type app struct {
 	m    sync.RWMutex
 	name string
 
-	builds map[string][]Build
-	bus    *appbus
+	builds       map[string][]Build
+	integrations []Integration
+
+	bus *appbus
 }
 
 // NewApp will return a new app with the given name, the name should also be the directory name that the app will
 // search for config data in
-func NewApp(name string) App {
+func NewApp(name string, integrations []Integration) App {
 	return &app{
-		name:   name,
-		builds: make(map[string][]Build),
-		bus:    newAppBus(),
+		name:         name,
+		builds:       make(map[string][]Build),
+		bus:          newAppBus(),
+		integrations: integrations,
 	}
 }
 
@@ -75,8 +78,6 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 		return "", errors.New("a is nil")
 	}
 
-	a.m.Lock()
-	defer a.m.Unlock()
 	for {
 		token = generateToken()
 		if build, err := a.GetBuild(token); err == nil {
@@ -88,6 +89,10 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 
 		break
 	}
+
+	a.m.Lock()
+	defer a.m.Unlock()
+	config.Integrations = a.integrations
 
 	build := newBuild(a, token, config)
 	a.builds[group] = append(a.builds[group], build)
