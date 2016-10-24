@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/watchly/ngbuild/slack"
+	"github.com/watchly/ngbuild/integrations/slack"
 )
 
 var (
-	hostname     = flag.String("hostname", "", "Domain name of the build server")
-	clientID     = flag.String("clientID", "", "Slack OAuth Client ID")
-	clientSecret = flag.String("clientSecret", "", "Slack OAuth Client Secret")
+	hostname     = flag.String("hostname", "", "domain name of the build server")
+	clientID     = flag.String("clientID", "", "slack oauth client ID")
+	clientSecret = flag.String("clientSecret", "", "slack oauth client secret")
 )
 
 func main() {
