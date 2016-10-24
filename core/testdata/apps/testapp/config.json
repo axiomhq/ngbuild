@@ -1,0 +1,8 @@
+{
+    "Foo": "a different string",
+    "Integrations": {
+        "testintegration": {
+            "Foo": "A different bar"
+        }
+    }
+}

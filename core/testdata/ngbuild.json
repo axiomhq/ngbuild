@@ -1,0 +1,10 @@
+{
+    "Foo": "a test string",
+    "Bar": "something else",
+    "Integrations": {
+        "testintegration": {
+            "Foo": "Bar",
+            "Baz": "FooBarBaz"
+        }
+    }
+}
