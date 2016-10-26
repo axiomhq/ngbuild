@@ -2,12 +2,98 @@ package core
 
 import (
 	"errors"
+	"os"
+	"os/user"
+	"path/filepath"
+	"strings"
 	"sync"
 )
 
+func getNGBuildDirectory() (string, error) {
+	probeLocations := []string{}
+
+	if overrideDir, ok := os.LookupEnv("NGBUILD_DIRECTORY"); ok {
+		probeLocations = append(probeLocations, overrideDir)
+	}
+
+	if cwd, err := os.Getwd(); err == nil {
+		probeLocations = append(probeLocations, cwd)
+	}
+
+	if user, err := user.Current(); err == nil {
+		probeLocations = append(probeLocations, user.HomeDir)
+	}
+
+	probeLocations = append(probeLocations, "/etc/ngbuild/")
+
+	for _, probeLocation := range probeLocations {
+		if exists, _ := Exists(filepath.Join(probeLocation, "ngbuild.json")); exists == false {
+			continue
+		} else if exists, _ = Exists(filepath.Join(probeLocation, "apps")); exists == false {
+			continue
+		}
+
+		// we have a valid location, it has an ngbuild.conf and an apps directory
+		return probeLocation, nil
+	}
+	return "", errors.New("no app location detected")
+
+}
+
+// getAppsLocation will check directories for a ngbuild.conf and an apps/ directory from there
+func getAppsLocation() (string, error) {
+	dir, err := getNGBuildDirectory()
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(dir, "apps"), nil
+}
+
+// GetApps will return App objects for all the apps we can find on this machine
+func GetApps() []App {
+	appsLocation, err := getAppsLocation()
+	if err != nil {
+		return []App{}
+	}
+
+	perAppDirs, err := filepath.Glob(filepath.Join(appsLocation, "*"))
+	if err != nil {
+		logcritf("Couldn't glob %s: %s", appsLocation, err)
+		return []App{}
+	}
+
+	apps := []App{}
+	for _, appDir := range perAppDirs {
+		splitDirs := strings.Split(appDir, string(filepath.Separator))
+		if len(splitDirs) < 2 {
+			logcritf("Could not deterimine app name for :%s", appDir)
+			continue
+		}
+		name := splitDirs[len(splitDirs)-1]
+
+		appConfig := struct {
+			DisabledIntegrations []string
+		}{}
+
+		if err := applyConfig(name, &appConfig); err != nil {
+			logcritf("Could not read config file for app (%s): %s", appDir, err)
+			continue
+		}
+
+		integrations := GetIntegrations(appConfig.DisabledIntegrations...)
+		app := newApp(name, appDir, integrations)
+
+		apps = append(apps, app)
+	}
+
+	return apps
+}
+
 type app struct {
-	m    sync.RWMutex
-	name string
+	m           sync.RWMutex
+	name        string
+	appLocation string
 
 	builds       map[string][]Build
 	integrations []Integration
@@ -17,9 +103,10 @@ type app struct {
 
 // NewApp will return a new app with the given name, the name should also be the directory name that the app will
 // search for config data in
-func NewApp(name string, integrations []Integration) App {
+func newApp(name, appLocation string, integrations []Integration) App {
 	return &app{
 		name:         name,
+		appLocation:  appLocation,
 		builds:       make(map[string][]Build),
 		bus:          newAppBus(),
 		integrations: integrations,
@@ -33,6 +120,26 @@ func (a *app) Name() string {
 	}
 
 	return a.name
+}
+
+// GetAppLocation will return the app config location on disk
+func (a *app) GetAppLocation() string {
+	if a == nil {
+		return ""
+	}
+
+	return a.appLocation
+}
+
+func (a *app) Shutdown() {
+	if a == nil {
+		return
+	}
+	for _, builds := range a.builds {
+		for _, build := range builds {
+			build.Stop()
+		}
+	}
 }
 
 // Config will apply the config at namespace onto the given conf structure

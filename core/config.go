@@ -20,6 +20,12 @@ var (
 
 func loadConfig(path string) (config, error) {
 	configCacheLock.RLock()
+	var err error
+	configBaseDir, err = getNGBuildDirectory()
+	if err != nil {
+		configBaseDir = ""
+	}
+
 	if c, ok := configCache[path]; ok {
 		configCacheLock.RUnlock()
 		return c, nil

@@ -50,8 +50,9 @@ type (
 
 		// NewBuild will be used by github and the like to create new builds for this app whenever they deem so
 		NewBuild(group string, config *BuildConfig) (token string, err error)
-
 		GetBuild(token string) (Build, error)
+
+		Shutdown()
 	}
 
 	// BuildConfig describes a build, heavily in favour of github/git at the moment
