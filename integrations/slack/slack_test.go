@@ -17,12 +17,12 @@ import (
 	"github.com/watchly/ngbuild/mocks"
 )
 
-type slackApi struct {
+type slackAPI struct {
 	lastAttachments []slack.Attachment
 	lastError       error
 }
 
-func (s *slackApi) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (s *slackAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	attachments := r.FormValue("attachments")
 	s.lastError = json.Unmarshal([]byte(attachments), &s.lastAttachments)
 
@@ -55,7 +55,7 @@ func TestAttachToApp(t *testing.T) {
 	app := &mocks.App{}
 
 	call := app.On("Listen", mock.AnythingOfType("string"), mock.Anything)
-	call.Return(1)
+	call.Return(core.EventHandler(1))
 	call.Run(func(args mock.Arguments) {
 		listener := args[0].(string)
 		assert.Equal(core.SignalBuildComplete, listener)
@@ -88,12 +88,13 @@ func TestSignal(t *testing.T) {
 	token = "213j1i2j3i1oj3ij13"
 
 	onBuildCompleteFunc(map[string]string{"token": token})
+	println("?")
 
 	build := &mocks.Build{}
 
 	exitCodeCall := build.On("ExitCode")
 
-	getBuildCall.Return(build)
+	getBuildCall.Return(build, nil)
 
 	exitCodeCall.Return(0, errors.New("Nope"))
 	onBuildCompleteFunc(map[string]string{"token": token})
@@ -108,7 +109,7 @@ func TestSignal(t *testing.T) {
 	build.On("Token").Return(token)
 	build.On("BuildTime").Return(654 * time.Second)
 
-	api := &slackApi{}
+	api := &slackAPI{}
 	server := httptest.NewServer(api)
 
 	slack.SLACK_API = server.URL + "/"
