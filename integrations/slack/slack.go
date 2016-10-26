@@ -20,22 +20,24 @@ import (
 
 const (
 	actionValueRebuild = "rebuild"
+	colorSucceeded     = "#36a64f"
+	colorFailed        = "#bb2c32"
 )
 
 var (
 	errNoClient  = errors.New("Slack client is not authenticated")
 	oauth2Scopes = []string{"incoming-webhook"}
 	oauth2State  = fmt.Sprintf("%d%d%d", os.Getuid(), os.Getpid(), time.Now().Unix())
+	silent       = false
 )
 
 type (
 	Slack struct {
-		m            *sync.RWMutex
+		m            sync.RWMutex
 		client       *slack.Client
 		clientID     string
 		clientSecret string
 		hostname     string
-		channel      string
 		apps         []core.App
 	}
 
@@ -49,21 +51,17 @@ type (
 	}
 
 	config struct {
-		Channel   string `json:"channel"`
-		OnlyFixed bool   `json:"onlyFixed"`
+		ClientID     string `json:"clientId"`
+		ClientSecret string `json:"clientSecret"`
+		Channel      string `json:"channel"`
+		OnlyFixed    bool   `json:"onlyFixed"`
 	}
 )
 
-func New(hostname, clientID, clientSecret string) *Slack {
+func New(hostname string) *Slack {
 	s := &Slack{
-		m:            &sync.RWMutex{},
-		clientID:     clientID,
-		clientSecret: clientSecret,
-		hostname:     hostname,
-		channel:      "sodding",
+		hostname: hostname,
 	}
-
-	s.loadToken()
 
 	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
 	http.HandleFunc("/cb/slack", s.handleSlackAction())
@@ -88,6 +86,19 @@ func (s *Slack) ProvideFor(core.Build, string) error {
 func (s *Slack) AttachToApp(app core.App) error {
 	s.m.Lock()
 	defer s.m.Unlock()
+
+	// Don't have to do this everytime
+	if s.clientID == "" {
+		cfg := config{}
+		app.Config("slack", &cfg)
+		if cfg.ClientID == "" || cfg.ClientSecret == "" {
+			printWarning("Configuration for app `%s` does not have Slack OAuth credentials", app.Name())
+		} else {
+			s.clientID = cfg.ClientID
+			s.clientSecret = cfg.ClientSecret
+			s.loadToken()
+		}
+	}
 
 	app.Listen(core.SignalBuildComplete, s.onBuildComplete(app))
 	s.apps = append(s.apps, app)
@@ -119,7 +130,6 @@ func (s *Slack) onBuildComplete(app core.App) func(map[string]string) {
 // Hooks for various actions & message creation
 //
 func (s *Slack) BuildSucceeded(app core.App, build core.Build) {
-	// FIXME: Support only fixed builds
 	s.PostBuildMessage(app, build, true)
 }
 
@@ -163,16 +173,16 @@ func (s *Slack) PostBuildMessage(app core.App, build core.Build, succeeded bool)
 
 	_, _, err = client.PostMessage(channel, "", *params)
 	if err != nil {
-		printWarning("Error sending message: %s", err.Error)
+		printWarning("Error sending message: %s", err.Error())
 	}
 }
 
 func (s *Slack) getBaseMessageParams(app core.App, build core.Build, succeeded bool) *slack.PostMessageParameters {
-	color := "#36a64f"
+	color := colorSucceeded
 	suffix := "*passed*"
 
 	if !succeeded {
-		color = "#bb2c32"
+		color = colorFailed
 		suffix = "*failed*"
 	}
 
@@ -396,9 +406,15 @@ func getConfigFilePath() string {
 }
 
 func printInfo(message string, args ...interface{}) {
+	if silent {
+		return
+	}
 	fmt.Printf("INFO Slack - "+message+"\n", args...)
 }
 
 func printWarning(message string, args ...interface{}) {
+	if silent {
+		return
+	}
 	fmt.Printf("WARN Slack - "+message+"\n", args...)
 }
