@@ -15,7 +15,7 @@ func main() {
 	fmt.Println("   Building your dreams, one step at a time\n")
 
 	integrations := []core.Integration{
-		slack.New(""),
+		slack.New(),
 	}
 	core.SetIntegrations(integrations)
 

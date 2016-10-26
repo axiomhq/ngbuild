@@ -12,7 +12,6 @@ import (
 type config map[string]interface{}
 
 var (
-	// TODO - make this adjustable with envvar or something
 	configBaseDir   = ""
 	configCacheLock sync.RWMutex
 	configCache     = make(map[string]config)
@@ -21,9 +20,11 @@ var (
 func loadConfig(path string) (config, error) {
 	configCacheLock.RLock()
 	var err error
-	configBaseDir, err = getNGBuildDirectory()
-	if err != nil {
-		configBaseDir = ""
+	if configBaseDir == "" {
+		configBaseDir, err = getNGBuildDirectory()
+		if err != nil {
+			configBaseDir = ""
+		}
 	}
 
 	if c, ok := configCache[path]; ok {

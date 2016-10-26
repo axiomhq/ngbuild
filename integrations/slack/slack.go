@@ -52,6 +52,7 @@ type (
 	}
 
 	config struct {
+		Hostname     string `json:"hostname"`
 		ClientID     string `json:"clientId"`
 		ClientSecret string `json:"clientSecret"`
 		Channel      string `json:"channel"`
@@ -60,11 +61,8 @@ type (
 )
 
 // New ...
-func New(hostname string) *Slack {
-	s := &Slack{
-		hostname: hostname,
-	}
-
+func New() *Slack {
+	s := &Slack{}
 	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
 	http.HandleFunc("/cb/slack", s.handleSlackAction())
 
@@ -103,6 +101,16 @@ func (s *Slack) AttachToApp(app core.App) error {
 			s.clientID = cfg.ClientID
 			s.clientSecret = cfg.ClientSecret
 			s.loadToken()
+		}
+
+		var gcfg struct {
+			Hostname string `json:"hostname"`
+		}
+		app.GlobalConfig(&gcfg)
+		if gcfg.Hostname == "" {
+			printWarning("Global configuration for app `%s` does not have a hostname specified", app.Name())
+		} else {
+			s.hostname = gcfg.Hostname
 		}
 	}
 

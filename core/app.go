@@ -2,43 +2,10 @@ package core
 
 import (
 	"errors"
-	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
 )
-
-func getNGBuildDirectory() (string, error) {
-	probeLocations := []string{}
-
-	if overrideDir, ok := os.LookupEnv("NGBUILD_DIRECTORY"); ok {
-		probeLocations = append(probeLocations, overrideDir)
-	}
-
-	if cwd, err := os.Getwd(); err == nil {
-		probeLocations = append(probeLocations, cwd)
-	}
-
-	if user, err := user.Current(); err == nil {
-		probeLocations = append(probeLocations, user.HomeDir)
-	}
-
-	probeLocations = append(probeLocations, "/etc/ngbuild/")
-
-	for _, probeLocation := range probeLocations {
-		if exists, _ := Exists(filepath.Join(probeLocation, "ngbuild.json")); exists == false {
-			continue
-		} else if exists, _ = Exists(filepath.Join(probeLocation, "apps")); exists == false {
-			continue
-		}
-
-		// we have a valid location, it has an ngbuild.conf and an apps directory
-		return probeLocation, nil
-	}
-	return "", errors.New("no app location detected")
-
-}
 
 // getAppsLocation will check directories for a ngbuild.conf and an apps/ directory from there
 func getAppsLocation() (string, error) {
@@ -123,7 +90,7 @@ func (a *app) Name() string {
 }
 
 // GetAppLocation will return the app config location on disk
-func (a *app) GetAppLocation() string {
+func (a *app) AppLocation() string {
 	if a == nil {
 		return ""
 	}
@@ -150,6 +117,16 @@ func (a *app) Config(integrationName string, conf interface{}) error {
 	}
 
 	return applyIntegrationConfig(a.name, integrationName, conf)
+}
+
+// GlobalConfig will fill the interface s with config values taken from
+// the global config informatio
+func (a *app) GlobalConfig(conf interface{}) error {
+	if a == nil {
+		return errors.New("a is nil")
+	}
+
+	return applyConfig(a.name, conf)
 }
 
 // SendEvent will send the given string on the apps event bus
