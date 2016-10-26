@@ -2,9 +2,50 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"io/ioutil"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+)
+
+type buildState uint32
+
+func (state *buildState) HasStarted() bool {
+	return atomic.LoadUint32((*uint32)(state))&(^uint32(0)) != 0
+}
+func (state *buildState) HasStopped() bool {
+	return atomic.LoadUint32((*uint32)(state))&(uint32)(buildStateFinished) != 0
+}
+func (state *buildState) SetBuildState(newState buildState) {
+	atomic.StoreUint32((*uint32)(state), (uint32)(newState))
+}
+func (state *buildState) String() string {
+	switch (buildState)(atomic.LoadUint32((*uint32)(state))) {
+	case buildStateNull:
+		return "Null"
+	case buildStateStarted:
+		return "Started"
+	case buildStateWaitingForProvisioning:
+		return "Waiting for provisioning"
+	case buildStateFinished:
+		return "Finished"
+	default:
+		return "unknown"
+	}
+}
+
+// buildStates
+const (
+	buildStateNull                   buildState = iota
+	buildStateWaitingForProvisioning            = 1 << iota
+	buildStateStarted
+	buildStateFinished
 )
 
 type refcount uint64
@@ -22,6 +63,8 @@ func (ref *refcount) Get() uint64 {
 }
 
 type build struct {
+	m sync.RWMutex
+
 	config *BuildConfig
 	token  string
 
@@ -30,8 +73,13 @@ type build struct {
 	stdpipes *stdpipes
 	ref      refcount
 
-	finished uint64
-	exitCode int
+	cmd *exec.Cmd
+
+	buildDirectory string
+	state          buildState
+	exitCode       int
+
+	artifacts []string
 }
 
 func newBuild(app App, token string, config *BuildConfig) *build {
@@ -46,14 +94,272 @@ func (b *build) hasFinished() bool {
 	if b == nil {
 		return true
 	}
-	return atomic.LoadUint64(&b.finished) > 0
+	return b.state.HasStopped()
+}
+
+func (b *build) Config() BuildConfig {
+	if b == nil {
+		return BuildConfig{}
+	}
+
+	return *b.config
+}
+
+func checkConfig(config *BuildConfig) error {
+	if config == nil {
+		return errors.New("config is nil")
+	}
+
+	if config.Title == "" {
+		return errors.New("Title is required")
+	}
+
+	if config.URL == "" {
+		return errors.New("URL is required")
+	}
+
+	if config.BaseRepo == "" {
+		return errors.New("URL is required")
+	}
+
+	if config.BaseHash == "" {
+		return errors.New("URL is required")
+	}
+
+	if config.MergeRepo == "" {
+		return errors.New("MergeRepo is required")
+	}
+
+	if config.MergeHash == "" {
+		return errors.New("MergeHash is required")
+	}
+
+	if config.Group == "" {
+		return errors.New("Group is required")
+	}
+
+	if config.BuildRunner == "" {
+		return errors.New("BuildRunner is required")
+	}
+	return nil
+}
+
+func (b *build) loginfof(str string, args ...interface{}) {
+	args = append([]interface{}{b.Token()}, args...)
+	log := loginfof("(%s):"+str, args...)
+	if b.parentApp != nil {
+		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
+	}
+}
+
+func (b *build) logwarnf(str string, args ...interface{}) {
+	args = append([]interface{}{b.Token()}, args...)
+	log := logwarnf("(%s):"+str, args...)
+	if b.parentApp != nil {
+		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
+	}
+}
+
+func (b *build) logcritf(str string, args ...interface{}) {
+	args = append([]interface{}{b.Token()}, args...)
+	log := logcritf("(%s):"+str, args...)
+	if b.parentApp != nil {
+		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
+	}
+}
+
+// provisionDirectory will return an empty unique directory to work in
+func provisionDirectory() (string, error) {
+	// TODO , make this use a specific place instead of just tempdir
+	return ioutil.TempDir(os.TempDir(), "ngbuild-workspace")
+}
+
+func cleanupDirectory(directory string) error {
+	return os.RemoveAll(directory)
+}
+
+func (b *build) provisionBuildIntoDirectory(config *BuildConfig, workdir string) error {
+	provisioned := false
+	for _, integration := range config.Integrations {
+		if integration.IsProvider(config.BaseRepo) && integration.IsProvider(config.MergeRepo) {
+			if err := integration.ProvideFor(config, workdir); err != nil {
+				b.logcritf("(%s) Error providing for build: %s", integration.Identifier(), err)
+				continue
+			}
+
+			provisioned = true
+			break
+		}
+	}
+
+	if provisioned == false {
+		return errors.New("Could not provision with any loaded integration")
+	}
+
+	return nil
+}
+
+func (b *build) runBuildSync(config BuildConfig) error {
+	defer func() { b.state = buildStateFinished }()
+
+	b.loginfof("provisioning")
+	provisionedDirectory, err := provisionDirectory()
+	if err != nil {
+		return err
+	}
+
+	b.m.Lock()
+	b.buildDirectory = provisionedDirectory
+	b.m.Unlock()
+
+	err = b.provisionBuildIntoDirectory(&config, provisionedDirectory)
+	if err != nil {
+		return err
+	}
+
+	b.loginfof("running build: %s", filepath.Join(provisionedDirectory, config.BuildRunner))
+	cmd := exec.Command("/bin/sh", filepath.Join(provisionedDirectory, config.BuildRunner))
+	b.m.Lock()
+	b.cmd = cmd
+	b.m.Unlock()
+
+	// gets child processes killed, probably linux only
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	b.stdpipes = newStdpipes(stdout, stderr)
+	err = cmd.Start()
+	if err != nil {
+		cmd.Process.Kill()
+		return err
+	}
+	b.loginfof("successfully started build")
+	b.state = buildStateStarted
+
+runSyncLoop:
+	for {
+		select {
+		case <-b.stdpipes.Done:
+			err = cmd.Wait() // stdout/err have finished, just need to wait for the process to exit
+			if err != nil {
+				b.logwarnf("Build exited with non zero error code")
+				b.m.Lock()
+				defer b.m.Unlock()
+				b.exitCode = 1
+				b.cmd = nil
+				return err
+			}
+			break runSyncLoop
+
+		case <-time.After(config.Deadline):
+			b.logwarnf("Cancelling build as deadline reached")
+			err := b.Stop()
+			if err != nil {
+				b.logcritf("Couldn't stop build: %s", err)
+				b.m.Lock()
+				defer b.m.Unlock()
+				b.exitCode = 500
+				b.cmd = nil
+				return err
+			}
+		}
+	}
+
+	b.m.Lock()
+	defer b.m.Unlock()
+	b.cmd = nil
+
+	b.loginfof("Build finished")
+	return nil
+
 }
 
 // Start will start the given build, it will error with ErrAlreadyStarted if the build is already running
-func (b *build) Start() error { return nil }
+func (b *build) Start() error {
+	if b == nil {
+		return errors.New("b is nil")
+	}
+
+	b.m.RLock()
+	defer b.m.Unlock()
+	if b.state.HasStarted() || b.state.HasStopped() {
+		return ErrProcessAlreadyStarted
+	}
+
+	b.state = buildStateWaitingForProvisioning
+
+	var config BuildConfig
+	config = *b.config
+	if config.Deadline < time.Duration(time.Millisecond) {
+		b.logwarnf("deadline not set in config, defaulting to 30 minutes")
+		config.Deadline = time.Minute * 30
+	}
+	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/started/token:%s", b.parentApp.Name(), b.Token()))
+
+	go func() {
+		err := b.runBuildSync(config)
+		if err != nil {
+			b.logwarnf("Build exited with error: %s", err)
+		}
+
+		// move artifacts over to perminent storage
+		// TODO get from config
+		perminentStorageDir := "/tmp/ngbuildartifacts/"
+		artifactDir := filepath.Join(perminentStorageDir, b.Token())
+		if err := os.MkdirAll(artifactDir, 0766); err != nil {
+			b.logcritf("Couldn't create artifact directory %s: %s", artifactDir, err)
+		} else {
+			// TODO, all this stuff, needs things defined in config
+			/*
+				for _, artifact := range b.parentApp.GetArtifactList() {
+					// copy file to artifacts directory
+				}
+			*/
+		}
+
+		b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/complete/token:%s", b.parentApp.Name(), b.Token()))
+	}()
+
+	return nil
+}
 
 // Stop will stop the given build, it will error with ErrAlreadyStopped if the build has finished
-func (b *build) Stop() error { return nil }
+func (b *build) Stop() error {
+	if b == nil {
+		return errors.New("b is nil")
+	}
+
+	b.m.RLock()
+	if b.state.HasStarted() == false || b.state.HasStopped() {
+		b.m.RUnlock()
+		b.logcritf("Stop called on non started/already stopped build")
+		return ErrProcessAlreadyFinished
+	}
+	b.m.RUnlock()
+
+	b.m.Lock()
+	defer b.m.Unlock()
+	pgid, err := syscall.Getpgid(b.cmd.Process.Pid)
+	if err != nil {
+		return err
+	}
+
+	if err := syscall.Kill(-pgid, 15); err != nil {
+		return err
+	}
+	b.loginfof("Stopped build")
+
+	return nil
+}
 
 // Ref will add a reference to this build, the build will not cleanup until all references are dropped
 func (b *build) Ref() {
@@ -72,7 +378,12 @@ func (b *build) Unref() {
 
 	b.ref.Remove()
 	if b.ref.Get() < 1 {
-		// TODO cleanup
+		b.m.Lock()
+		if b.buildDirectory != "" {
+			os.RemoveAll(b.buildDirectory)
+			b.buildDirectory = ""
+		}
+		b.m.Unlock()
 	}
 }
 
