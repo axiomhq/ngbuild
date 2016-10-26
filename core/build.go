@@ -317,8 +317,15 @@ func (b *build) Start() error {
 		}
 
 		// move artifacts over to perminent storage
-		// TODO get from config
+		var cfg struct {
+			ArtifactsLocation string `mapstructure:"artifactsLocation"`
+		}
 		perminentStorageDir := "/tmp/ngbuildartifacts/"
+
+		if err := b.parentApp.GlobalConfig(&cfg); err == nil {
+			perminentStorageDir = cfg.ArtifactsLocation
+		}
+
 		artifactDir := filepath.Join(perminentStorageDir, b.Token())
 		if err := os.MkdirAll(artifactDir, 0766); err != nil {
 			b.logcritf("Couldn't create artifact directory %s: %s", artifactDir, err)
@@ -395,8 +402,8 @@ func (b *build) Unref() {
 // NewBuild will construct a new Build using this build as a base,
 // it is essentally a retry system
 func (b *build) NewBuild() (token string, err error) {
-
-	return
+	config := *b.config
+	return b.parentApp.NewBuild(b.Group(), &config)
 }
 
 func (b *build) Group() string {
@@ -473,5 +480,17 @@ func (b *build) BuildTime() time.Duration {
 
 // History will return an array of previous Build's in this builds group
 func (b *build) History() []Build {
+	if b == nil {
+		return nil
+	}
+
+	history := b.parentApp.GetBuildHistory(b.Group())
+	for i, build := range history {
+		if build.Token() == b.Token() {
+			return history[:i+1]
+		}
+	}
+
 	return nil
+
 }

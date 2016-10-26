@@ -41,6 +41,7 @@ type (
 		Name() string
 		Config(namespace string, conf interface{}) error
 		GlobalConfig(conf interface{}) error
+		Shutdown()
 
 		// AppLocation will return the physical filesystem location of this app
 		AppLocation() string
@@ -58,8 +59,7 @@ type (
 		// NewBuild will be used by github and the like to create new builds for this app whenever they deem so
 		NewBuild(group string, config *BuildConfig) (token string, err error)
 		GetBuild(token string) (Build, error)
-
-		Shutdown()
+		GetBuildHistory(group string) []Build
 	}
 
 	// BuildConfig describes a build, heavily in favour of github/git at the moment

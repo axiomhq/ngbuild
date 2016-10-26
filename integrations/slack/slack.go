@@ -14,6 +14,8 @@ import (
 	"golang.org/x/oauth2"
 	oslack "golang.org/x/oauth2/slack"
 
+	_ "github.com/mitchellh/mapstructure"
+
 	"github.com/nlopes/slack"
 	"github.com/watchly/ngbuild/core"
 )
@@ -43,20 +45,20 @@ type (
 	}
 
 	tokenCache struct {
-		Token   string `json:"token"`
-		Webhook string `json:"webhook"`
+		Token   string `mapstructure:"token"`
+		Webhook string `mapstructure:"webhook"`
 	}
 
 	messageParams struct {
-		Attachments []slack.Attachment `json:"attachments"`
+		Attachments []slack.Attachment `mapstructure:"attachments"`
 	}
 
 	config struct {
-		Hostname     string `json:"hostname"`
-		ClientID     string `json:"clientId"`
-		ClientSecret string `json:"clientSecret"`
-		Channel      string `json:"channel"`
-		OnlyFixed    bool   `json:"onlyFixed"`
+		Hostname     string `mapstructure:"hostname"`
+		ClientID     string `mapstructure:"clientId"`
+		ClientSecret string `mapstructure:"clientSecret"`
+		Channel      string `mapstructure:"channel"`
+		OnlyFixed    bool   `mapstructure:"onlyFixed"`
 	}
 )
 
@@ -104,7 +106,7 @@ func (s *Slack) AttachToApp(app core.App) error {
 		}
 
 		var gcfg struct {
-			Hostname string `json:"hostname"`
+			Hostname string `mapstructure:"hostname"`
 		}
 		app.GlobalConfig(&gcfg)
 		if gcfg.Hostname == "" {

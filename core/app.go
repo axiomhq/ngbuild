@@ -201,3 +201,7 @@ func (a *app) GetBuild(token string) (Build, error) {
 
 	return nil, nil
 }
+
+func (a *app) GetBuildHistory(group string) []Build {
+	return a.builds[group]
+}
