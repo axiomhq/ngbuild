@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -12,14 +13,26 @@ import (
 type config map[string]interface{}
 
 var (
-	// TODO - make this adjustable with envvar or something
 	configBaseDir   = ""
 	configCacheLock sync.RWMutex
 	configCache     = make(map[string]config)
+
+	configDefaults = map[string]interface{}{
+		"buildLocation":     os.TempDir(),
+		"artifactsLocation": os.TempDir(),
+	}
 )
 
 func loadConfig(path string) (config, error) {
 	configCacheLock.RLock()
+	var err error
+	if configBaseDir == "" {
+		configBaseDir, err = getNGBuildDirectory()
+		if err != nil {
+			configBaseDir = ""
+		}
+	}
+
 	if c, ok := configCache[path]; ok {
 		configCacheLock.RUnlock()
 		return c, nil
@@ -54,6 +67,10 @@ func loadAppConfig(appname string) (config, error) {
 
 // for the given config, apply it's data onto the given structure s
 func applyConfig(appname string, s interface{}) error {
+	if err := mapstructure.Decode(configDefaults, s); err != nil {
+		return err
+	}
+
 	master, err := loadMasterConfig()
 	if err != nil {
 		return err

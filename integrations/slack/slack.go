@@ -14,6 +14,8 @@ import (
 	"golang.org/x/oauth2"
 	oslack "golang.org/x/oauth2/slack"
 
+	_ "github.com/mitchellh/mapstructure"
+
 	"github.com/nlopes/slack"
 	"github.com/watchly/ngbuild/core"
 )
@@ -32,6 +34,7 @@ var (
 )
 
 type (
+	//Slack ...
 	Slack struct {
 		m            sync.RWMutex
 		client       *slack.Client
@@ -42,27 +45,26 @@ type (
 	}
 
 	tokenCache struct {
-		Token   string `json:"token"`
-		Webhook string `json:"webhook"`
+		Token   string `mapstructure:"token"`
+		Webhook string `mapstructure:"webhook"`
 	}
 
 	messageParams struct {
-		Attachments []slack.Attachment `json:"attachments"`
+		Attachments []slack.Attachment `mapstructure:"attachments"`
 	}
 
 	config struct {
-		ClientID     string `json:"clientId"`
-		ClientSecret string `json:"clientSecret"`
-		Channel      string `json:"channel"`
-		OnlyFixed    bool   `json:"onlyFixed"`
+		Hostname     string `mapstructure:"hostname"`
+		ClientID     string `mapstructure:"clientId"`
+		ClientSecret string `mapstructure:"clientSecret"`
+		Channel      string `mapstructure:"channel"`
+		OnlyFixed    bool   `mapstructure:"onlyFixed"`
 	}
 )
 
-func New(hostname string) *Slack {
-	s := &Slack{
-		hostname: hostname,
-	}
-
+// New ...
+func New() *Slack {
+	s := &Slack{}
 	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
 	http.HandleFunc("/cb/slack", s.handleSlackAction())
 
@@ -71,18 +73,22 @@ func New(hostname string) *Slack {
 	return s
 }
 
+// Identifier ...
 func (s *Slack) Identifier() string {
 	return "slack"
 }
 
+// IsProvider ...
 func (s *Slack) IsProvider(string) bool {
 	return false
 }
 
-func (s *Slack) ProvideFor(core.Build, string) error {
+// ProvideFor ...
+func (s *Slack) ProvideFor(*core.BuildConfig, string) error {
 	return errors.New("Slack can't provide, man")
 }
 
+// AttachToApp ...
 func (s *Slack) AttachToApp(app core.App) error {
 	s.m.Lock()
 	defer s.m.Unlock()
@@ -98,6 +104,16 @@ func (s *Slack) AttachToApp(app core.App) error {
 			s.clientSecret = cfg.ClientSecret
 			s.loadToken()
 		}
+
+		var gcfg struct {
+			Hostname string `mapstructure:"hostname"`
+		}
+		app.GlobalConfig(&gcfg)
+		if gcfg.Hostname == "" {
+			printWarning("Global configuration for app `%s` does not have a hostname specified", app.Name())
+		} else {
+			s.hostname = gcfg.Hostname
+		}
 	}
 
 	app.Listen(core.SignalBuildComplete, s.onBuildComplete(app))
@@ -105,6 +121,7 @@ func (s *Slack) AttachToApp(app core.App) error {
 	return nil
 }
 
+// Shutdown ...
 func (s *Slack) Shutdown() {
 
 }
@@ -129,14 +146,18 @@ func (s *Slack) onBuildComplete(app core.App) func(map[string]string) {
 //
 // Hooks for various actions & message creation
 //
+
+// BuildSucceeded ...
 func (s *Slack) BuildSucceeded(app core.App, build core.Build) {
 	s.PostBuildMessage(app, build, true)
 }
 
+// BuildFailed ...
 func (s *Slack) BuildFailed(app core.App, build core.Build) {
 	s.PostBuildMessage(app, build, false)
 }
 
+// PostBuildMessage ...
 func (s *Slack) PostBuildMessage(app core.App, build core.Build, succeeded bool) {
 	// Remove in prod
 	channel := "testing"

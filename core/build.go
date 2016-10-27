@@ -70,16 +70,18 @@ type build struct {
 
 	parentApp App
 
-	stdpipes *stdpipes
-	ref      refcount
+	ref refcount
 
-	cmd *exec.Cmd
+	cmd            *exec.Cmd
+	stdpipes       *stdpipes
+	buildStartTime time.Time
+	buildEndTime   time.Time
 
 	buildDirectory string
 	state          buildState
 	exitCode       int
 
-	artifacts []string
+	artifacts map[string][]string
 }
 
 func newBuild(app App, token string, config *BuildConfig) *build {
@@ -87,6 +89,7 @@ func newBuild(app App, token string, config *BuildConfig) *build {
 		parentApp: app,
 		token:     token,
 		config:    config,
+		artifacts: make(map[string][]string),
 	}
 }
 
@@ -209,6 +212,7 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	}
 
 	b.m.Lock()
+	b.buildStartTime = time.Now().UTC()
 	b.buildDirectory = provisionedDirectory
 	b.m.Unlock()
 
@@ -276,6 +280,7 @@ runSyncLoop:
 
 	b.m.Lock()
 	defer b.m.Unlock()
+	b.buildEndTime = time.Now().UTC()
 	b.cmd = nil
 
 	b.loginfof("Build finished")
@@ -312,8 +317,15 @@ func (b *build) Start() error {
 		}
 
 		// move artifacts over to perminent storage
-		// TODO get from config
+		var cfg struct {
+			ArtifactsLocation string `mapstructure:"artifactsLocation"`
+		}
 		perminentStorageDir := "/tmp/ngbuildartifacts/"
+
+		if err := b.parentApp.GlobalConfig(&cfg); err == nil {
+			perminentStorageDir = cfg.ArtifactsLocation
+		}
+
 		artifactDir := filepath.Join(perminentStorageDir, b.Token())
 		if err := os.MkdirAll(artifactDir, 0766); err != nil {
 			b.logcritf("Couldn't create artifact directory %s: %s", artifactDir, err)
@@ -390,8 +402,8 @@ func (b *build) Unref() {
 // NewBuild will construct a new Build using this build as a base,
 // it is essentally a retry system
 func (b *build) NewBuild() (token string, err error) {
-
-	return
+	config := *b.config
+	return b.parentApp.NewBuild(b.Group(), &config)
 }
 
 func (b *build) Group() string {
@@ -450,15 +462,35 @@ func (b *build) ExitCode() (int, error) {
 
 // Artifact will return a list of filepaths for the given artifact name
 func (b *build) Artifact(name string) []string {
-	return nil
+	if b == nil {
+		return nil
+	}
+
+	return b.artifacts[name]
 }
 
 // BuildTime will return how long the build took, will return 0 if build hasn't started yet
 func (b *build) BuildTime() time.Duration {
-	return time.Duration(0)
+	if b == nil || b.state.HasStopped() == false {
+		return time.Duration(0)
+	}
+
+	return b.buildEndTime.Sub(b.buildStartTime)
 }
 
 // History will return an array of previous Build's in this builds group
 func (b *build) History() []Build {
+	if b == nil {
+		return nil
+	}
+
+	history := b.parentApp.GetBuildHistory(b.Group())
+	for i, build := range history {
+		if build.Token() == b.Token() {
+			return history[:i+1]
+		}
+	}
+
 	return nil
+
 }

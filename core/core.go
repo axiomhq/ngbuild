@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"os/user"
+	"path/filepath"
 	"time"
 )
 
@@ -32,11 +35,16 @@ type (
 	// App is defined by $NGBUILD_WORKSPACE/apps/$appname/config.yaml
 	// Apps will define different builds, for different projects or different kinds of builds or whatever
 	// Config has $NGBUILD_WORKSPACE/config.yaml as a parent and then applies
-	// $NGBUILD_WORKSPACE/apps/$appname/config.yaml onto it
+	// $NGBUILD_WORKSPACE/apps/$appname/config.json onto it
 	// Everything App should be thread safe as it will be called from many goroutines
 	App interface {
 		Name() string
 		Config(namespace string, conf interface{}) error
+		GlobalConfig(conf interface{}) error
+		Shutdown()
+
+		// AppLocation will return the physical filesystem location of this app
+		AppLocation() string
 
 		// SendEvent is a dispatcher, it will send this string across all the apps integrations and also Core
 		SendEvent(event string)
@@ -50,8 +58,8 @@ type (
 
 		// NewBuild will be used by github and the like to create new builds for this app whenever they deem so
 		NewBuild(group string, config *BuildConfig) (token string, err error)
-
 		GetBuild(token string) (Build, error)
+		GetBuildHistory(group string) []Build
 	}
 
 	// BuildConfig describes a build, heavily in favour of github/git at the moment
@@ -144,10 +152,35 @@ func RegisterIntegration(integration Integration) {
 	integrations = append(integrations, integration)
 }
 
-// Provision will find an integration that will provide for the given build and get it to
-// provision into a directory
-func Provision(build Build) (provisionedDirectory string, err error) {
-	return "", nil
+func getNGBuildDirectory() (string, error) {
+	probeLocations := []string{}
+
+	if overrideDir, ok := os.LookupEnv("NGBUILD_DIRECTORY"); ok {
+		probeLocations = append(probeLocations, overrideDir)
+	}
+
+	if cwd, err := os.Getwd(); err == nil {
+		probeLocations = append(probeLocations, cwd)
+	}
+
+	if user, err := user.Current(); err == nil {
+		probeLocations = append(probeLocations, user.HomeDir)
+	}
+
+	probeLocations = append(probeLocations, "/etc/ngbuild/")
+
+	for _, probeLocation := range probeLocations {
+		if exists, _ := Exists(filepath.Join(probeLocation, "ngbuild.json")); exists == false {
+			continue
+		} else if exists, _ = Exists(filepath.Join(probeLocation, "apps")); exists == false {
+			continue
+		}
+
+		// we have a valid location, it has an ngbuild.conf and an apps directory
+		return probeLocation, nil
+	}
+	return "", errors.New("no app location detected")
+
 }
 
 func loginfof(str string, args ...interface{}) (ret string) {
