@@ -4,10 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
 	"sync"
 	"time"
 
@@ -62,8 +60,8 @@ type (
 	}
 )
 
-// New ...
-func New() *Slack {
+// NewSlack ...
+func NewSlack() *Slack {
 	s := &Slack{}
 	http.HandleFunc("/cb/auth/slack", s.handleSlackAuth())
 	http.HandleFunc("/cb/slack", s.handleSlackAction())
@@ -354,15 +352,9 @@ func (s *Slack) loadToken() {
 	// for the user to log-in the app
 	name := getConfigFilePath()
 	cfg := tokenCache{}
-
-	if _, err := os.Stat(name); err != nil {
-		s.printAuthHelp()
-	} else if data, err := ioutil.ReadFile(name); err != nil {
-		printWarning("Unable to load config - %s", err.Error())
-		s.printAuthHelp()
-	} else if err := json.Unmarshal(data, &cfg); err != nil {
-		printWarning("Unable to unmarshal config - %s", err.Error())
-	} else if cfg.Token == "" {
+	cfg.Token = core.GetCache("slack:token")
+	cfg.Webhook = core.GetCache("slack:webhook")
+	if cfg.Token == "" {
 		s.printAuthHelp()
 	} else {
 		s.setClient(cfg.Token)
@@ -406,26 +398,13 @@ func (s *Slack) printAuthHelp() {
 }
 
 func (s *Slack) saveConfig(cfg *tokenCache) {
-	name := getConfigFilePath()
-
-	if data, err := json.Marshal(cfg); err != nil {
-		printWarning("Unable to save config file - error marshalling data: %s", err.Error())
-	} else if err := ioutil.WriteFile(name, data, 0644); err != nil {
-		printWarning("Unable to save config file - %s", err.Error())
-	}
+	core.StoreCache("slack:token", cfg.Token)
+	core.StoreCache("slack:webhook", cfg.Webhook)
 }
 
 //
 // Util funcs, should be plugged into main app
 //
-func getDataDir() string {
-	return os.TempDir()
-}
-
-func getConfigFilePath() string {
-	return path.Join(getDataDir(), "slack.config")
-}
-
 func printInfo(message string, args ...interface{}) {
 	if silent {
 		return

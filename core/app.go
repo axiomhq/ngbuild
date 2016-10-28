@@ -38,17 +38,33 @@ func GetApps() []App {
 			continue
 		}
 		name := splitDirs[len(splitDirs)-1]
-
-		appConfig := struct {
-			DisabledIntegrations []string
+		enabledIntegrations := struct {
+			EnabledIntegrations []string `mapstructure:"enabledIntegrations"`
 		}{}
+		applyConfig(name, &enabledIntegrations)
 
-		if err := applyConfig(name, &appConfig); err != nil {
-			logcritf("Could not read config file for app (%s): %s", appDir, err)
-			continue
+		integrations := GetIntegrations()
+		// christ this code, will remove all but the 'enabledIntegrations' from our integrations list
+		if len(enabledIntegrations.EnabledIntegrations) > 0 {
+			for finished := false; finished == false; {
+				finished = true
+				for i, integration := range integrations {
+					foundInEnabled := false
+					for _, enabledIntegration := range enabledIntegrations.EnabledIntegrations {
+						if enabledIntegration == integration.Identifier() {
+							foundInEnabled = true
+							break
+						}
+					}
+
+					if foundInEnabled == false {
+						integrations = append(integrations[:i], integrations[i+1:]...)
+						finished = false
+						break
+					}
+				}
+			}
 		}
-
-		integrations := GetIntegrations(appConfig.DisabledIntegrations...)
 		app := newApp(name, appDir, integrations)
 
 		apps = append(apps, app)
@@ -71,13 +87,19 @@ type app struct {
 // NewApp will return a new app with the given name, the name should also be the directory name that the app will
 // search for config data in
 func newApp(name, appLocation string, integrations []Integration) App {
-	return &app{
+	app := &app{
 		name:         name,
 		appLocation:  appLocation,
 		builds:       make(map[string][]Build),
 		bus:          newAppBus(),
 		integrations: integrations,
 	}
+
+	for _, integration := range integrations {
+		integration.AttachToApp(app)
+	}
+
+	return app
 }
 
 // Name is the apps name

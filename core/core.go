@@ -1,12 +1,17 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -180,7 +185,118 @@ func getNGBuildDirectory() (string, error) {
 		return probeLocation, nil
 	}
 	return "", errors.New("no app location detected")
+}
 
+var (
+	cacheLock      sync.RWMutex
+	cacheSyncLock  sync.Mutex
+	cacheSyncCheck uint64
+	cache          = make(map[string]string)
+	cacheInited    uint64
+)
+
+// StoreCache will store the given data perminately on disk, it can be retrieved  with GetCache()
+func StoreCache(key, data string) {
+	cacheLock.Lock()
+	cache[key] = data
+	cacheLock.Unlock()
+
+	// sync cache to disk from here out
+	if atomic.LoadUint64(&cacheSyncCheck) > 0 {
+		return
+	}
+
+	cacheSyncLock.Lock()
+	atomic.StoreUint64(&cacheSyncCheck, 1)
+	defer atomic.StoreUint64(&cacheSyncCheck, 0)
+	defer cacheSyncLock.Unlock()
+
+	cfgCache := struct {
+		CacheDirectory string `mapstructure:"cacheDirectory"`
+	}{}
+	applyConfig("", &cfgCache)
+
+	os.MkdirAll(cfgCache.CacheDirectory, 0755)
+
+	cacheLock.RLock()
+	defer cacheLock.RUnlock()
+	if data, err := json.Marshal(cache); err != nil {
+		logcritf("Unable to serialize cache to disk: %s", err)
+	} else if err := ioutil.WriteFile(filepath.Join(cfgCache.CacheDirectory, "ngbuild.cache"), data, 0644); err != nil {
+		logcritf("Unable to serialize cache to disk: %s", err)
+	}
+
+	return
+}
+
+func initCache() {
+	cacheLock.Lock()
+	defer cacheLock.Unlock()
+
+	if atomic.LoadUint64(&cacheInited) > 0 {
+		return
+	}
+
+	cacheSyncLock.Lock()
+	defer atomic.StoreUint64(&cacheInited, 1)
+	defer cacheSyncLock.Unlock()
+
+	cfgCache := struct {
+		CacheDirectory string `mapstructure:"cacheDirectory"`
+	}{}
+	applyConfig("", &cfgCache)
+
+	if data, err := ioutil.ReadFile(filepath.Join(cfgCache.CacheDirectory, "ngbuild.cache")); err != nil {
+		logcritf("Unable to read cached data: %s", err)
+	} else if err := json.Unmarshal(data, &cache); err != nil {
+		logcritf("Unable to read cached data: %s", err)
+	}
+}
+
+// GetCache will retrieve data from the global cache, this may block longer than you expect
+func GetCache(key string) string {
+	if atomic.LoadUint64(&cacheInited) < 1 {
+		initCache()
+	}
+
+	cacheLock.RLock()
+	defer cacheLock.RUnlock()
+	return cache[key]
+}
+
+// StartHTTPServer will start the core http server that can be used by integrations
+func StartHTTPServer() chan struct{} {
+	httpDone := make(chan struct{}, 1)
+	go func() {
+		cfg := struct {
+			HTTPListenPort string `mapstructure:"httpListenPort"`
+		}{}
+		applyConfig("", &cfg)
+
+		loginfof("Starting http listen server on :%s", cfg.HTTPListenPort)
+		if err := http.ListenAndServe(":"+cfg.HTTPListenPort, nil); err != nil {
+			fmt.Println(err.Error())
+		}
+		httpDone <- struct{}{}
+	}()
+	return httpDone
+}
+
+// GetHTTPServerURL will return the base url that the http server is listening on
+func GetHTTPServerURL() string {
+	cfg := struct {
+		HTTPListenPort string `mapstructure:"httpListenPort"`
+		Hostname       string `mapstructure:"hostname"`
+	}{}
+	applyConfig("", &cfg)
+
+	if cfg.HTTPListenPort == "80" {
+		return fmt.Sprintf("http://%s", cfg.Hostname)
+	} else if cfg.HTTPListenPort == "443" {
+		return fmt.Sprintf("https://%s", cfg.Hostname)
+	} else {
+		return fmt.Sprintf("http://%s:%s", cfg.Hostname, cfg.HTTPListenPort)
+	}
 }
 
 func loginfof(str string, args ...interface{}) (ret string) {

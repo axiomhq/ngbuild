@@ -5,12 +5,17 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/mitchellh/mapstructure"
 )
 
 type config map[string]interface{}
+
+func expandHome(dir string) string {
+	return strings.Replace(dir, "~/", os.Getenv("HOME")+"/", 1)
+}
 
 var (
 	configBaseDir   = ""
@@ -20,6 +25,7 @@ var (
 	configDefaults = map[string]interface{}{
 		"buildLocation":     os.TempDir(),
 		"artifactsLocation": os.TempDir(),
+		"cacheDirectory":    expandHome("~/.cache/ngbuild/"),
 	}
 )
 

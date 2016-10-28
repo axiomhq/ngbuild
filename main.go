@@ -2,20 +2,22 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 
 	"github.com/watchly/ngbuild/core"
-	"github.com/watchly/ngbuild/integrations/slack"
+	"github.com/watchly/ngbuild/integrations/github"
 )
 
 func main() {
 	fmt.Println(",.-~*´¨¯¨`*·~-.¸-(_NGBuild_)-,.-~*´¨¯¨`*·~-.¸")
 	fmt.Println("   Building your dreams, one step at a time\n")
 
+	httpDone := core.StartHTTPServer()
+
 	integrations := []core.Integration{
-		slack.New(),
+		github.New(),
+		//slack.NewSlack(),
 	}
 	core.SetIntegrations(integrations)
 
@@ -38,14 +40,6 @@ To create an app, create an apps/ directory in your ngbuild directory and create
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Kill, os.Interrupt)
-
-	httpDone := make(chan struct{}, 1)
-	go func() {
-		if err := http.ListenAndServe(":http", nil); err != nil {
-			fmt.Println(err.Error())
-		}
-		httpDone <- struct{}{}
-	}()
 
 	select {
 	case <-signals:
