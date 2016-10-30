@@ -7,6 +7,7 @@ import (
 
 	"github.com/watchly/ngbuild/core"
 	"github.com/watchly/ngbuild/integrations/github"
+	"github.com/watchly/ngbuild/integrations/slack"
 )
 
 func main() {
@@ -17,7 +18,7 @@ func main() {
 
 	integrations := []core.Integration{
 		github.New(),
-		//slack.NewSlack(),
+		slack.NewSlack(),
 	}
 	core.SetIntegrations(integrations)
 

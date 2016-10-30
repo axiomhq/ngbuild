@@ -350,7 +350,6 @@ func (s *Slack) buildForToken(token string) (core.App, core.Build) {
 func (s *Slack) loadToken() {
 	// Try and load an existing token, otherwise print out instructions
 	// for the user to log-in the app
-	name := getConfigFilePath()
 	cfg := tokenCache{}
 	cfg.Token = core.GetCache("slack:token")
 	cfg.Webhook = core.GetCache("slack:webhook")

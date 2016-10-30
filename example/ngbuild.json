@@ -10,7 +10,8 @@
            "clientSecret": "6f98e1e7fe550f2137835febb4df0df59fbd22b9",
             "cancelOnNewCommit": true,
             "mergeOnPass": true,
-            "mergeOnPassAuthwords": ["+1", ":+1:", "👍", "accepted"]
+            "mergeOnPassAuthwords": ["+1", ":+1:", "👍", "accepted"],
+            "publicKey": "yourpublicsshkey"
         },
         "slack": {
             "clientID": "anid",
