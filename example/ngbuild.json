@@ -1,4 +1,20 @@
 {
    "artifactsLocation":"/tmp/ngbuild/artifacts/" ,
-   "buildLocation":"/tmp/ngbuild/builds/"
+   "buildLocation":"/tmp/ngbuild/builds/",
+   "httpListenPort":"8080",
+   "hostname": "ngbuilders-gord.illuminaughty.io",
+   
+   "Integrations": {
+        "github": {
+           "clientID": "d2faad6c2f952a084767",
+           "clientSecret": "6f98e1e7fe550f2137835febb4df0df59fbd22b9",
+            "cancelOnNewCommit": true,
+            "mergeOnPass": true,
+            "mergeOnPassAuthwords": ["+1", ":+1:", "👍", "accepted"]
+        },
+        "slack": {
+            "clientID": "anid",
+            "clientSecret": "somesecret"
+        }
+   }
 }

@@ -135,6 +135,8 @@ func applyIntegrationConfig(appname, integrationName string, s interface{}) erro
 				return err
 			}
 		}
+	} else {
+
 	}
 
 	return nil

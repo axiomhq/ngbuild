@@ -184,6 +184,10 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 		return "", errors.New("a is nil")
 	}
 
+	if config.BuildRunner == "" {
+		config.BuildRunner = "build.sh"
+	}
+
 	for {
 		token = generateToken()
 		if build, err := a.GetBuild(token); err == nil {
@@ -203,6 +207,15 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 	build := newBuild(a, token, config)
 	a.builds[group] = append(a.builds[group], build)
 
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- build.Start()
+	}()
+
+	if err := <-errChan; err != nil {
+		return "", err
+	}
+
 	return token, nil
 }
 
@@ -221,7 +234,7 @@ func (a *app) GetBuild(token string) (Build, error) {
 		}
 	}
 
-	return nil, nil
+	return nil, errors.New("Couldn't find build")
 }
 
 func (a *app) GetBuildHistory(group string) []Build {

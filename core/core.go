@@ -70,26 +70,30 @@ type (
 	// BuildConfig describes a build, heavily in favour of github/git at the moment
 	//
 	BuildConfig struct {
+		m        sync.RWMutex
+		metadata map[string]string
+
 		// Required block
 		Title string
 		URL   string
 
-		BaseRepo  string
-		BaseHash  string
-		MergeRepo string
-		MergeHash string
+		HeadRepo   string
+		HeadBranch string
+		HeadHash   string
+
+		BaseRepo   string
+		BaseBranch string
+		BaseHash   string
 
 		Group string
-
-		// Should be an executable of some sort
-		BuildRunner string
 
 		Integrations []Integration
 
 		// Not required block
-		Metadata map[string]string
 
-		Deadline time.Duration
+		// Should be an executable of some sort, if not set, set by app.NewBuild
+		BuildRunner string
+		Deadline    time.Duration
 	}
 
 	// Build interface
@@ -104,6 +108,9 @@ type (
 
 		Token() string
 		Group() string
+
+		HasStarted() bool
+		HasStopped() bool
 
 		// NewBuild() Will be used by slack and the like, /rebuild <token> or buttons or whatever will just lookup the build
 		// and call NewBuild() to run the exact same build again
@@ -125,7 +132,9 @@ type (
 
 		History() []Build
 
-		Config() BuildConfig
+		Config() *BuildConfig
+
+		WebStatusURL() string
 	}
 
 	// Integration is an interface that integrations should provide
