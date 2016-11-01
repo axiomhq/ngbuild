@@ -8,6 +8,7 @@ import (
 	"github.com/watchly/ngbuild/core"
 	"github.com/watchly/ngbuild/integrations/github"
 	"github.com/watchly/ngbuild/integrations/slack"
+	"github.com/watchly/ngbuild/integrations/web"
 )
 
 func main() {
@@ -17,6 +18,7 @@ func main() {
 	httpDone := core.StartHTTPServer()
 
 	integrations := []core.Integration{
+		web.NewWeb(),
 		github.New(),
 		slack.NewSlack(),
 	}
