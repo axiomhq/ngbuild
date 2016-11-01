@@ -26,11 +26,11 @@ var (
 // AppBus signal
 const (
 	appnameRE = `app:(?P<app>\w+)`
-	tokenRE   = `token:(?P<token>\w+)`
+	tokenRE   = `token:(?P<token>[a-zA-Z0-9_=+-]+)`
 
-	SignalBuildComplete = `/build/` + appnameRE + `/complete/` + tokenRE + `$`
-	SignalBuildStarted  = `/build/` + appnameRE + `/started/` + tokenRE + `$`
-	EventCoreLog        = `/log/` + appnameRE + `/logtype:(?P<logtype>\w+)/log(?P<logmessage>.*)$`
+	SignalBuildComplete = `\/build\/` + appnameRE + `\/complete\/` + tokenRE + `$`
+	SignalBuildStarted  = `\/build\/` + appnameRE + `\/started\/` + tokenRE + `$`
+	EventCoreLog        = `\/log\/` + appnameRE + `\/logtype:(?P<logtype>\w+)\/(?P<logmessage>.*)`
 )
 
 type (
@@ -65,6 +65,11 @@ type (
 		NewBuild(group string, config *BuildConfig) (token string, err error)
 		GetBuild(token string) (Build, error)
 		GetBuildHistory(group string) []Build
+
+		// logging functions, logs sent here will go to stdout and on the app bus as log messages
+		Loginfof(string, ...interface{})
+		Logwarnf(string, ...interface{})
+		Logcritf(string, ...interface{})
 	}
 
 	// BuildConfig describes a build, heavily in favour of github/git at the moment
@@ -204,6 +209,17 @@ var (
 	cacheInited    uint64
 )
 
+// CacheDirectory will return the location of the current cache directory
+func CacheDirectory() string {
+	cfgCache := struct {
+		CacheDirectory string `mapstructure:"cacheDirectory"`
+	}{}
+	applyConfig("", &cfgCache)
+
+	os.MkdirAll(cfgCache.CacheDirectory, 0755)
+	return cfgCache.CacheDirectory
+}
+
 // StoreCache will store the given data perminately on disk, it can be retrieved  with GetCache()
 func StoreCache(key, data string) {
 	cacheLock.Lock()
@@ -215,23 +231,18 @@ func StoreCache(key, data string) {
 		return
 	}
 
+	cacheDirectory := CacheDirectory()
+
 	cacheSyncLock.Lock()
 	atomic.StoreUint64(&cacheSyncCheck, 1)
 	defer atomic.StoreUint64(&cacheSyncCheck, 0)
 	defer cacheSyncLock.Unlock()
 
-	cfgCache := struct {
-		CacheDirectory string `mapstructure:"cacheDirectory"`
-	}{}
-	applyConfig("", &cfgCache)
-
-	os.MkdirAll(cfgCache.CacheDirectory, 0755)
-
 	cacheLock.RLock()
 	defer cacheLock.RUnlock()
 	if data, err := json.Marshal(cache); err != nil {
 		logcritf("Unable to serialize cache to disk: %s", err)
-	} else if err := ioutil.WriteFile(filepath.Join(cfgCache.CacheDirectory, "ngbuild.cache"), data, 0644); err != nil {
+	} else if err := ioutil.WriteFile(filepath.Join(cacheDirectory, "ngbuild.cache"), data, 0644); err != nil {
 		logcritf("Unable to serialize cache to disk: %s", err)
 	}
 
@@ -250,12 +261,9 @@ func initCache() {
 	defer atomic.StoreUint64(&cacheInited, 1)
 	defer cacheSyncLock.Unlock()
 
-	cfgCache := struct {
-		CacheDirectory string `mapstructure:"cacheDirectory"`
-	}{}
-	applyConfig("", &cfgCache)
+	cacheDirectory := CacheDirectory()
 
-	if data, err := ioutil.ReadFile(filepath.Join(cfgCache.CacheDirectory, "ngbuild.cache")); err != nil {
+	if data, err := ioutil.ReadFile(filepath.Join(cacheDirectory, "ngbuild.cache")); err != nil {
 		logcritf("Unable to read cached data: %s", err)
 	} else if err := json.Unmarshal(data, &cache); err != nil {
 		logcritf("Unable to read cached data: %s", err)

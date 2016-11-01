@@ -105,6 +105,21 @@ func (_m *App) Listen(event string, listener func(map[string]string)) core.Event
 	return r0
 }
 
+// Logcritf provides a mock function with given fields: _a0, _a1
+func (_m *App) Logcritf(_a0 string, _a1 ...interface{}) {
+	_m.Called(_a0, _a1)
+}
+
+// Loginfof provides a mock function with given fields: _a0, _a1
+func (_m *App) Loginfof(_a0 string, _a1 ...interface{}) {
+	_m.Called(_a0, _a1)
+}
+
+// Logwarnf provides a mock function with given fields: _a0, _a1
+func (_m *App) Logwarnf(_a0 string, _a1 ...interface{}) {
+	_m.Called(_a0, _a1)
+}
+
 // Name provides a mock function with given fields:
 func (_m *App) Name() string {
 	ret := _m.Called()

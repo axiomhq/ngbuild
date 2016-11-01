@@ -48,7 +48,7 @@ type githubApp struct {
 
 // Github ...
 type Github struct {
-	m            sync.Mutex
+	m            sync.RWMutex
 	globalConfig githubConfig
 	apps         map[string]*githubApp
 
@@ -84,7 +84,6 @@ func (g *Github) IsProvider(source string) bool {
 // ProvideFor ...
 func (g *Github) ProvideFor(config *core.BuildConfig, directory string) error {
 	// FIXME, need to git checkout the given config
-	loginfof("Asked to provide for %+v", config)
 	return g.cloneAndMerge(directory, config)
 }
 
@@ -112,7 +111,6 @@ func (g *Github) handleGithubAuth(resp http.ResponseWriter, req *http.Request) {
 }
 
 func (g *Github) handleGithubEvent(resp http.ResponseWriter, req *http.Request) {
-	loginfof("got webhook event: %s", req.URL.Path)
 	splits := strings.Split(req.URL.Path, "/")
 	appIndex := len(splits) - 1
 
@@ -135,7 +133,7 @@ func (g *Github) handleGithubEvent(resp http.ResponseWriter, req *http.Request) 
 		logcritf("Error decoding webhook %s:%s", req.URL.RawPath, err)
 		return
 	}
-	loginfof("Got event: %s", eventType)
+	loginfof("Got webhook event: %s", eventType)
 
 	switch eventType {
 	case "commit_comment":
@@ -197,6 +195,7 @@ func (g *Github) init(app core.App) {
 		if g.globalConfig.ClientID == "" || g.globalConfig.ClientSecret == "" {
 			fmt.Println("Invalid github configuration, missing ClientID/ClientSecret")
 		} else {
+
 			g.clientHasSet.L.Lock()
 			g.acquireOauthToken()
 			for g.client == nil {
@@ -293,6 +292,7 @@ func (g *Github) trackPullRequest(app *githubApp, event *github.PullRequestEvent
 	}
 	pull := event.PullRequest
 	pullID := strconv.Itoa(*pull.ID)
+
 	g.m.Lock()
 	defer g.m.Unlock()
 
@@ -313,6 +313,7 @@ func (g *Github) trackPullRequest(app *githubApp, event *github.PullRequestEvent
 func (g *Github) buildPullRequest(app *githubApp, pull *github.PullRequest) {
 	// for reference, head is the proposed branch, base is the branch to merge into
 	pullID := strconv.Itoa(*pull.ID)
+	loginfof("Building pull request: %s", pullID)
 	status, ok := g.trackedPullRequests[pullID]
 	if ok == false {
 		status = pullRequestStatus{pull, "", false}
@@ -386,13 +387,15 @@ func (g *Github) buildPullRequest(app *githubApp, pull *github.PullRequest) {
 
 func (g *Github) updatePullRequest(app *githubApp, event *github.PullRequestEvent) {
 	// this is called when there is a new commit on the pull request or something like that
-	g.m.Lock()
-	defer g.m.Unlock()
-
 	pullID := strconv.Itoa(*event.PullRequest.ID)
+
+	g.m.RLock()
 	_, ok := g.trackedPullRequests[pullID]
+	g.m.RUnlock()
+
 	if ok == false {
 		logwarnf("event on unknown/ignored pull request: %s", pullID)
+		g.trackPullRequest(app, event)
 		return
 	}
 
@@ -400,8 +403,8 @@ func (g *Github) updatePullRequest(app *githubApp, event *github.PullRequestEven
 }
 
 func (g *Github) closedPullRequest(app *githubApp, event *github.PullRequestEvent) {
-	g.m.Lock()
-	defer g.m.Unlock()
+	g.m.RLock()
+	defer g.m.RUnlock()
 
 	pullID := strconv.Itoa(*event.PullRequest.ID)
 	status, ok := g.trackedPullRequests[pullID]

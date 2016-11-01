@@ -155,27 +155,15 @@ func checkConfig(config *BuildConfig) error {
 }
 
 func (b *build) loginfof(str string, args ...interface{}) {
-	args = append([]interface{}{b.Token()}, args...)
-	log := loginfof("(%s):"+str, args...)
-	if b.parentApp != nil {
-		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
-	}
+	b.parentApp.Loginfof(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
 }
 
 func (b *build) logwarnf(str string, args ...interface{}) {
-	args = append([]interface{}{b.Token()}, args...)
-	log := logwarnf("(%s):"+str, args...)
-	if b.parentApp != nil {
-		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
-	}
+	b.parentApp.Loginfof(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
 }
 
 func (b *build) logcritf(str string, args ...interface{}) {
-	args = append([]interface{}{b.Token()}, args...)
-	log := logcritf("(%s):"+str, args...)
-	if b.parentApp != nil {
-		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
-	}
+	b.parentApp.Logcritf(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
 }
 
 // provisionDirectory will return an empty unique directory to work in
@@ -250,6 +238,8 @@ func (b *build) runBuildSync(config BuildConfig) error {
 
 	b.stdpipes = newStdpipes(stdout, stderr)
 	err = cmd.Start()
+	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/started/token:%s", b.parentApp.Name(), b.Token()))
+
 	if err != nil {
 		cmd.Process.Kill()
 		return err
@@ -313,7 +303,6 @@ func (b *build) Start() error {
 		b.logwarnf("deadline not set in config, defaulting to 30 minutes")
 		config.Deadline = time.Minute * 30
 	}
-	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/started/token:%s", b.parentApp.Name(), b.Token()))
 
 	go func() {
 		err := b.runBuildSync(config)
@@ -501,5 +490,5 @@ func (b *build) History() []Build {
 
 // WebStatusURL will return a url that can be used to find the status of this build request
 func (b *build) WebStatusURL() string {
-	return fmt.Sprintf("%s/web/%s/", GetHTTPServerURL(), b.Token())
+	return fmt.Sprintf("%s/web/%s/%s/", GetHTTPServerURL(), b.parentApp.Name(), b.Token())
 }

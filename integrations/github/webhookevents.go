@@ -19,12 +19,16 @@ func (g *Github) handleGithubPullRequest(app *githubApp, body []byte) {
 	}
 	switch *event.Action {
 	case "opened":
+		loginfof("opened pull request")
 		g.trackPullRequest(app, &event)
 	case "synchronize":
+		loginfof("sync pull request")
 		g.updatePullRequest(app, &event)
 	case "closed":
+		loginfof("closed pull request")
 		g.closedPullRequest(app, &event)
 	case "reopened":
+		loginfof("reopened pull request")
 		g.trackPullRequest(app, &event)
 	}
 

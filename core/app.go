@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -98,7 +99,6 @@ func newApp(name, appLocation string, integrations []Integration) App {
 	for _, integration := range integrations {
 		integration.AttachToApp(app)
 	}
-
 	return app
 }
 
@@ -239,4 +239,22 @@ func (a *app) GetBuild(token string) (Build, error) {
 
 func (a *app) GetBuildHistory(group string) []Build {
 	return a.builds[group]
+}
+
+func (a *app) Loginfof(str string, args ...interface{}) {
+	args = append([]interface{}{a.Name()}, args...)
+	log := logcritf("(%s):"+str, args...)
+	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:crit/%s", a.Name(), log))
+}
+
+func (a *app) Logwarnf(str string, args ...interface{}) {
+	args = append([]interface{}{a.Name()}, args...)
+	log := logcritf("(%s):"+str, args...)
+	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:warn/%s", a.Name(), log))
+}
+
+func (a *app) Logcritf(str string, args ...interface{}) {
+	args = append([]interface{}{a.Name()}, args...)
+	log := logcritf("(%s):"+str, args...)
+	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", a.Name(), log))
 }
