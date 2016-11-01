@@ -2,8 +2,8 @@ package core
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
-	"encoding/hex"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -23,5 +23,5 @@ func generateToken(prefix ...string) string {
 	binary.Write(hasher, binary.LittleEndian, time.Now().UTC().UnixNano())
 	binary.Write(hasher, binary.LittleEndian, atomic.AddUint64(&ctr, 1))
 
-	return strings.Join(prefix, "-") + hex.EncodeToString(hasher.Sum(nil))
+	return strings.Join(prefix, "-") + base64.URLEncoding.EncodeToString(hasher.Sum(nil))[:16]
 }

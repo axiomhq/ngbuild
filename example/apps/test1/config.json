@@ -1,1 +1,8 @@
-{}
+{
+    "Integrations": {
+        "github": {
+            "owner": "gordallott",
+            "repo": "testrepo"
+        }
+    }
+}

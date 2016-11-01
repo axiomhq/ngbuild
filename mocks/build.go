@@ -47,14 +47,16 @@ func (_m *Build) BuildTime() time.Duration {
 }
 
 // Config provides a mock function with given fields:
-func (_m *Build) Config() core.BuildConfig {
+func (_m *Build) Config() *core.BuildConfig {
 	ret := _m.Called()
 
-	var r0 core.BuildConfig
-	if rf, ok := ret.Get(0).(func() core.BuildConfig); ok {
+	var r0 *core.BuildConfig
+	if rf, ok := ret.Get(0).(func() *core.BuildConfig); ok {
 		r0 = rf()
 	} else {
-		r0 = ret.Get(0).(core.BuildConfig)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*core.BuildConfig)
+		}
 	}
 
 	return r0
@@ -90,6 +92,34 @@ func (_m *Build) Group() string {
 		r0 = rf()
 	} else {
 		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// HasStarted provides a mock function with given fields:
+func (_m *Build) HasStarted() bool {
+	ret := _m.Called()
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// HasStopped provides a mock function with given fields:
+func (_m *Build) HasStopped() bool {
+	ret := _m.Called()
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
 	}
 
 	return r0
@@ -228,4 +258,18 @@ func (_m *Build) Token() string {
 // Unref provides a mock function with given fields:
 func (_m *Build) Unref() {
 	_m.Called()
+}
+
+// WebStatusURL provides a mock function with given fields:
+func (_m *Build) WebStatusURL() string {
+	ret := _m.Called()
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
 }

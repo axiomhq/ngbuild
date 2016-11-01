@@ -1,12 +1,17 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"os/user"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,11 +26,11 @@ var (
 // AppBus signal
 const (
 	appnameRE = `app:(?P<app>\w+)`
-	tokenRE   = `token:(?P<token>\w+)`
+	tokenRE   = `token:(?P<token>[a-zA-Z0-9_=+-]+)`
 
-	SignalBuildComplete = `/build/` + appnameRE + `/complete/` + tokenRE + `$`
-	SignalBuildStarted  = `/build/` + appnameRE + `/started/` + tokenRE + `$`
-	EventCoreLog        = `/log/` + appnameRE + `/logtype:(?P<logtype>\w+)/log(?P<logmessage>.*)$`
+	SignalBuildComplete = `\/build\/` + appnameRE + `\/complete\/` + tokenRE + `$`
+	SignalBuildStarted  = `\/build\/` + appnameRE + `\/started\/` + tokenRE + `$`
+	EventCoreLog        = `\/log\/` + appnameRE + `\/logtype:(?P<logtype>\w+)\/(?P<logmessage>.*)`
 )
 
 type (
@@ -60,31 +65,40 @@ type (
 		NewBuild(group string, config *BuildConfig) (token string, err error)
 		GetBuild(token string) (Build, error)
 		GetBuildHistory(group string) []Build
+
+		// logging functions, logs sent here will go to stdout and on the app bus as log messages
+		Loginfof(string, ...interface{})
+		Logwarnf(string, ...interface{})
+		Logcritf(string, ...interface{})
 	}
 
 	// BuildConfig describes a build, heavily in favour of github/git at the moment
 	//
 	BuildConfig struct {
+		m        sync.RWMutex
+		metadata map[string]string
+
 		// Required block
 		Title string
 		URL   string
 
-		BaseRepo  string
-		BaseHash  string
-		MergeRepo string
-		MergeHash string
+		HeadRepo   string
+		HeadBranch string
+		HeadHash   string
+
+		BaseRepo   string
+		BaseBranch string
+		BaseHash   string
 
 		Group string
-
-		// Should be an executable of some sort
-		BuildRunner string
 
 		Integrations []Integration
 
 		// Not required block
-		Metadata map[string]string
 
-		Deadline time.Duration
+		// Should be an executable of some sort, if not set, set by app.NewBuild
+		BuildRunner string
+		Deadline    time.Duration
 	}
 
 	// Build interface
@@ -99,6 +113,9 @@ type (
 
 		Token() string
 		Group() string
+
+		HasStarted() bool
+		HasStopped() bool
 
 		// NewBuild() Will be used by slack and the like, /rebuild <token> or buttons or whatever will just lookup the build
 		// and call NewBuild() to run the exact same build again
@@ -120,7 +137,9 @@ type (
 
 		History() []Build
 
-		Config() BuildConfig
+		Config() *BuildConfig
+
+		WebStatusURL() string
 	}
 
 	// Integration is an interface that integrations should provide
@@ -180,7 +199,121 @@ func getNGBuildDirectory() (string, error) {
 		return probeLocation, nil
 	}
 	return "", errors.New("no app location detected")
+}
 
+var (
+	cacheLock      sync.RWMutex
+	cacheSyncLock  sync.Mutex
+	cacheSyncCheck uint64
+	cache          = make(map[string]string)
+	cacheInited    uint64
+)
+
+// CacheDirectory will return the location of the current cache directory
+func CacheDirectory() string {
+	cfgCache := struct {
+		CacheDirectory string `mapstructure:"cacheDirectory"`
+	}{}
+	applyConfig("", &cfgCache)
+
+	os.MkdirAll(cfgCache.CacheDirectory, 0755)
+	return cfgCache.CacheDirectory
+}
+
+// StoreCache will store the given data perminately on disk, it can be retrieved  with GetCache()
+func StoreCache(key, data string) {
+	cacheLock.Lock()
+	cache[key] = data
+	cacheLock.Unlock()
+
+	// sync cache to disk from here out
+	if atomic.LoadUint64(&cacheSyncCheck) > 0 {
+		return
+	}
+
+	cacheDirectory := CacheDirectory()
+
+	cacheSyncLock.Lock()
+	atomic.StoreUint64(&cacheSyncCheck, 1)
+	defer atomic.StoreUint64(&cacheSyncCheck, 0)
+	defer cacheSyncLock.Unlock()
+
+	cacheLock.RLock()
+	defer cacheLock.RUnlock()
+	if data, err := json.Marshal(cache); err != nil {
+		logcritf("Unable to serialize cache to disk: %s", err)
+	} else if err := ioutil.WriteFile(filepath.Join(cacheDirectory, "ngbuild.cache"), data, 0644); err != nil {
+		logcritf("Unable to serialize cache to disk: %s", err)
+	}
+
+	return
+}
+
+func initCache() {
+	cacheLock.Lock()
+	defer cacheLock.Unlock()
+
+	if atomic.LoadUint64(&cacheInited) > 0 {
+		return
+	}
+
+	cacheSyncLock.Lock()
+	defer atomic.StoreUint64(&cacheInited, 1)
+	defer cacheSyncLock.Unlock()
+
+	cacheDirectory := CacheDirectory()
+
+	if data, err := ioutil.ReadFile(filepath.Join(cacheDirectory, "ngbuild.cache")); err != nil {
+		logcritf("Unable to read cached data: %s", err)
+	} else if err := json.Unmarshal(data, &cache); err != nil {
+		logcritf("Unable to read cached data: %s", err)
+	}
+}
+
+// GetCache will retrieve data from the global cache, this may block longer than you expect
+func GetCache(key string) string {
+	if atomic.LoadUint64(&cacheInited) < 1 {
+		initCache()
+	}
+
+	cacheLock.RLock()
+	defer cacheLock.RUnlock()
+	return cache[key]
+}
+
+// StartHTTPServer will start the core http server that can be used by integrations
+func StartHTTPServer() chan struct{} {
+	httpDone := make(chan struct{}, 1)
+	go func() {
+		cfg := struct {
+			HTTPListenPort string `mapstructure:"httpListenPort"`
+		}{}
+		applyConfig("", &cfg)
+
+		loginfof("Starting http listen server on :%s", cfg.HTTPListenPort)
+		if err := http.ListenAndServe(":"+cfg.HTTPListenPort, nil); err != nil {
+			fmt.Println(err.Error())
+		}
+		httpDone <- struct{}{}
+	}()
+	return httpDone
+}
+
+// GetHTTPServerURL will return the base url that the http server is listening on
+func GetHTTPServerURL() string {
+	cfg := struct {
+		HTTPListenPort string `mapstructure:"httpListenPort"`
+		Hostname       string `mapstructure:"hostname"`
+	}{}
+	applyConfig("", &cfg)
+
+	if cfg.HTTPListenPort == "80" {
+		return fmt.Sprintf("http://%s", cfg.Hostname)
+	} else if cfg.HTTPListenPort == "443" {
+		return fmt.Sprintf("https://%s", cfg.Hostname)
+	} else {
+		return fmt.Sprintf("http://%s:%s", cfg.Hostname, cfg.HTTPListenPort)
+	}
 }
 
 func loginfof(str string, args ...interface{}) (ret string) {

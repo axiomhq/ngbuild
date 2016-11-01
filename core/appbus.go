@@ -34,15 +34,18 @@ func newAppBus() *appbus {
 
 func (bus *appbus) AddListener(expr string, listener func(map[string]string)) (EventHandler, error) {
 	if bus == nil {
+		logcritf("Listener added to nil bus: %s", expr)
 		return EventHandler(0), errors.New("bus is nil")
 	}
 
 	if atomic.LoadUint64(&bus.closed) > 0 {
+		logcritf("Listener added to closed bus: %s", expr)
 		return EventHandler(0), errors.New("bus is closed")
 	}
 
 	bus.m.Lock()
 	defer bus.m.Unlock()
+
 	var foundKey *regexp.Regexp
 	for key := range bus.listeners {
 		if key.String() == expr {
@@ -55,12 +58,12 @@ func (bus *appbus) AddListener(expr string, listener func(map[string]string)) (E
 		handler := atomic.AddUint64(&bus.handlerctr, 1)
 		listeners := append(bus.listeners[foundKey], appbuslistener{listener, EventHandler(handler)})
 		bus.listeners[foundKey] = listeners
-
 		return EventHandler(handler), nil
 	}
 
 	re, err := regexp.Compile(expr)
 	if err != nil {
+		logcritf("Couldn't compile listener expression `%s`: %s", expr, err)
 		return 0, err
 	}
 
@@ -98,7 +101,6 @@ func (bus *appbus) Emit(action string) {
 	if bus == nil || atomic.LoadUint64(&bus.closed) > 0 {
 		return
 	}
-
 	bus.events <- action
 }
 

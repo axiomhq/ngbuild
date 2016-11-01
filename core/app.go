@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -38,17 +39,33 @@ func GetApps() []App {
 			continue
 		}
 		name := splitDirs[len(splitDirs)-1]
-
-		appConfig := struct {
-			DisabledIntegrations []string
+		enabledIntegrations := struct {
+			EnabledIntegrations []string `mapstructure:"enabledIntegrations"`
 		}{}
+		applyConfig(name, &enabledIntegrations)
 
-		if err := applyConfig(name, &appConfig); err != nil {
-			logcritf("Could not read config file for app (%s): %s", appDir, err)
-			continue
+		integrations := GetIntegrations()
+		// christ this code, will remove all but the 'enabledIntegrations' from our integrations list
+		if len(enabledIntegrations.EnabledIntegrations) > 0 {
+			for finished := false; finished == false; {
+				finished = true
+				for i, integration := range integrations {
+					foundInEnabled := false
+					for _, enabledIntegration := range enabledIntegrations.EnabledIntegrations {
+						if enabledIntegration == integration.Identifier() {
+							foundInEnabled = true
+							break
+						}
+					}
+
+					if foundInEnabled == false {
+						integrations = append(integrations[:i], integrations[i+1:]...)
+						finished = false
+						break
+					}
+				}
+			}
 		}
-
-		integrations := GetIntegrations(appConfig.DisabledIntegrations...)
 		app := newApp(name, appDir, integrations)
 
 		apps = append(apps, app)
@@ -71,13 +88,18 @@ type app struct {
 // NewApp will return a new app with the given name, the name should also be the directory name that the app will
 // search for config data in
 func newApp(name, appLocation string, integrations []Integration) App {
-	return &app{
+	app := &app{
 		name:         name,
 		appLocation:  appLocation,
 		builds:       make(map[string][]Build),
 		bus:          newAppBus(),
 		integrations: integrations,
 	}
+
+	for _, integration := range integrations {
+		integration.AttachToApp(app)
+	}
+	return app
 }
 
 // Name is the apps name
@@ -162,6 +184,10 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 		return "", errors.New("a is nil")
 	}
 
+	if config.BuildRunner == "" {
+		config.BuildRunner = "build.sh"
+	}
+
 	for {
 		token = generateToken()
 		if build, err := a.GetBuild(token); err == nil {
@@ -181,6 +207,15 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 	build := newBuild(a, token, config)
 	a.builds[group] = append(a.builds[group], build)
 
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- build.Start()
+	}()
+
+	if err := <-errChan; err != nil {
+		return "", err
+	}
+
 	return token, nil
 }
 
@@ -199,9 +234,27 @@ func (a *app) GetBuild(token string) (Build, error) {
 		}
 	}
 
-	return nil, nil
+	return nil, errors.New("Couldn't find build")
 }
 
 func (a *app) GetBuildHistory(group string) []Build {
 	return a.builds[group]
+}
+
+func (a *app) Loginfof(str string, args ...interface{}) {
+	args = append([]interface{}{a.Name()}, args...)
+	log := logcritf("(%s):"+str, args...)
+	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:crit/%s", a.Name(), log))
+}
+
+func (a *app) Logwarnf(str string, args ...interface{}) {
+	args = append([]interface{}{a.Name()}, args...)
+	log := logcritf("(%s):"+str, args...)
+	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:warn/%s", a.Name(), log))
+}
+
+func (a *app) Logcritf(str string, args ...interface{}) {
+	args = append([]interface{}{a.Name()}, args...)
+	log := logcritf("(%s):"+str, args...)
+	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", a.Name(), log))
 }

@@ -93,19 +93,26 @@ func newBuild(app App, token string, config *BuildConfig) *build {
 	}
 }
 
-func (b *build) hasFinished() bool {
+func (b *build) HasStarted() bool {
+	if b == nil {
+		return false
+	}
+	return b.state.HasStarted()
+}
+
+func (b *build) HasStopped() bool {
 	if b == nil {
 		return true
 	}
 	return b.state.HasStopped()
 }
 
-func (b *build) Config() BuildConfig {
+func (b *build) Config() *BuildConfig {
 	if b == nil {
-		return BuildConfig{}
+		return &BuildConfig{}
 	}
 
-	return *b.config
+	return b.config
 }
 
 func checkConfig(config *BuildConfig) error {
@@ -121,19 +128,19 @@ func checkConfig(config *BuildConfig) error {
 		return errors.New("URL is required")
 	}
 
+	if config.HeadRepo == "" {
+		return errors.New("URL is required")
+	}
+
+	if config.HeadHash == "" {
+		return errors.New("URL is required")
+	}
+
 	if config.BaseRepo == "" {
-		return errors.New("URL is required")
-	}
-
-	if config.BaseHash == "" {
-		return errors.New("URL is required")
-	}
-
-	if config.MergeRepo == "" {
 		return errors.New("MergeRepo is required")
 	}
 
-	if config.MergeHash == "" {
+	if config.BaseHash == "" {
 		return errors.New("MergeHash is required")
 	}
 
@@ -148,27 +155,15 @@ func checkConfig(config *BuildConfig) error {
 }
 
 func (b *build) loginfof(str string, args ...interface{}) {
-	args = append([]interface{}{b.Token()}, args...)
-	log := loginfof("(%s):"+str, args...)
-	if b.parentApp != nil {
-		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
-	}
+	b.parentApp.Loginfof(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
 }
 
 func (b *build) logwarnf(str string, args ...interface{}) {
-	args = append([]interface{}{b.Token()}, args...)
-	log := logwarnf("(%s):"+str, args...)
-	if b.parentApp != nil {
-		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
-	}
+	b.parentApp.Loginfof(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
 }
 
 func (b *build) logcritf(str string, args ...interface{}) {
-	args = append([]interface{}{b.Token()}, args...)
-	log := logcritf("(%s):"+str, args...)
-	if b.parentApp != nil {
-		b.parentApp.SendEvent(fmt.Sprintf("/log/app:%s/logtype:info/%s", b.parentApp.Name(), log))
-	}
+	b.parentApp.Logcritf(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
 }
 
 // provisionDirectory will return an empty unique directory to work in
@@ -184,7 +179,7 @@ func cleanupDirectory(directory string) error {
 func (b *build) provisionBuildIntoDirectory(config *BuildConfig, workdir string) error {
 	provisioned := false
 	for _, integration := range config.Integrations {
-		if integration.IsProvider(config.BaseRepo) && integration.IsProvider(config.MergeRepo) {
+		if integration.IsProvider(config.HeadRepo) && integration.IsProvider(config.BaseRepo) {
 			if err := integration.ProvideFor(config, workdir); err != nil {
 				b.logcritf("(%s) Error providing for build: %s", integration.Identifier(), err)
 				continue
@@ -212,23 +207,24 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	}
 
 	b.m.Lock()
+
 	b.buildStartTime = time.Now().UTC()
 	b.buildDirectory = provisionedDirectory
+
+	cmd := exec.Command("/bin/sh", filepath.Join(provisionedDirectory, config.BuildRunner))
+	// gets child processes killed, probably linux only
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	b.cmd = cmd
+
 	b.m.Unlock()
 
 	err = b.provisionBuildIntoDirectory(&config, provisionedDirectory)
 	if err != nil {
+		b.buildFinished(501)
 		return err
 	}
 
 	b.loginfof("running build: %s", filepath.Join(provisionedDirectory, config.BuildRunner))
-	cmd := exec.Command("/bin/sh", filepath.Join(provisionedDirectory, config.BuildRunner))
-	b.m.Lock()
-	b.cmd = cmd
-	b.m.Unlock()
-
-	// gets child processes killed, probably linux only
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -242,6 +238,8 @@ func (b *build) runBuildSync(config BuildConfig) error {
 
 	b.stdpipes = newStdpipes(stdout, stderr)
 	err = cmd.Start()
+	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/started/token:%s", b.parentApp.Name(), b.Token()))
+
 	if err != nil {
 		cmd.Process.Kill()
 		return err
@@ -256,10 +254,7 @@ runSyncLoop:
 			err = cmd.Wait() // stdout/err have finished, just need to wait for the process to exit
 			if err != nil {
 				b.logwarnf("Build exited with non zero error code")
-				b.m.Lock()
-				defer b.m.Unlock()
-				b.exitCode = 1
-				b.cmd = nil
+				b.buildFinished(1)
 				return err
 			}
 			break runSyncLoop
@@ -269,23 +264,23 @@ runSyncLoop:
 			err := b.Stop()
 			if err != nil {
 				b.logcritf("Couldn't stop build: %s", err)
-				b.m.Lock()
-				defer b.m.Unlock()
-				b.exitCode = 500
-				b.cmd = nil
+				b.buildFinished(500)
 				return err
 			}
 		}
 	}
 
-	b.m.Lock()
-	defer b.m.Unlock()
-	b.buildEndTime = time.Now().UTC()
-	b.cmd = nil
-
 	b.loginfof("Build finished")
 	return nil
 
+}
+
+func (b *build) buildFinished(code int) {
+	b.m.Lock()
+	defer b.m.Unlock()
+	b.buildEndTime = time.Now().UTC()
+	b.exitCode = code
+	b.cmd = nil
 }
 
 // Start will start the given build, it will error with ErrAlreadyStarted if the build is already running
@@ -294,7 +289,7 @@ func (b *build) Start() error {
 		return errors.New("b is nil")
 	}
 
-	b.m.RLock()
+	b.m.Lock()
 	defer b.m.Unlock()
 	if b.state.HasStarted() || b.state.HasStopped() {
 		return ErrProcessAlreadyStarted
@@ -308,7 +303,6 @@ func (b *build) Start() error {
 		b.logwarnf("deadline not set in config, defaulting to 30 minutes")
 		config.Deadline = time.Minute * 30
 	}
-	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/started/token:%s", b.parentApp.Name(), b.Token()))
 
 	go func() {
 		err := b.runBuildSync(config)
@@ -391,11 +385,11 @@ func (b *build) Unref() {
 	b.ref.Remove()
 	if b.ref.Get() < 1 {
 		b.m.Lock()
+		defer b.m.Unlock()
 		if b.buildDirectory != "" {
 			os.RemoveAll(b.buildDirectory)
 			b.buildDirectory = ""
 		}
-		b.m.Unlock()
 	}
 }
 
@@ -453,7 +447,7 @@ func (b *build) ExitCode() (int, error) {
 		return 0, errors.New("b is nil")
 	}
 
-	if b.hasFinished() {
+	if b.HasStopped() {
 		return b.exitCode, nil
 	}
 
@@ -492,5 +486,9 @@ func (b *build) History() []Build {
 	}
 
 	return nil
+}
 
+// WebStatusURL will return a url that can be used to find the status of this build request
+func (b *build) WebStatusURL() string {
+	return fmt.Sprintf("%s/web/%s/%s/", GetHTTPServerURL(), b.parentApp.Name(), b.Token())
 }
