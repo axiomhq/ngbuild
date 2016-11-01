@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -211,7 +212,15 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	b.buildStartTime = time.Now().UTC()
 	b.buildDirectory = provisionedDirectory
 
-	cmd := exec.Command("/bin/sh", filepath.Join(provisionedDirectory, config.BuildRunner))
+	// read the first line of the shell script to figure out what to run it in
+	script, _ := ioutil.ReadFile("build.sh")
+	firstLine := strings.Trim(strings.Split(string(script), "\n")[0], " \n\r\t")
+	sh := "/bin/sh"
+	if strings.HasPrefix(firstLine, "#!") {
+		sh = strings.SplitN(firstLine, "#!", 2)[1]
+	}
+
+	cmd := exec.Command(sh, filepath.Join(provisionedDirectory, config.BuildRunner))
 	// gets child processes killed, probably linux only
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	b.cmd = cmd
@@ -296,6 +305,7 @@ func (b *build) Start() error {
 	}
 
 	b.state = buildStateWaitingForProvisioning
+	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/provisioning/token:%s", b.parentApp.Name(), b.Token()))
 
 	var config BuildConfig
 	config = *b.config

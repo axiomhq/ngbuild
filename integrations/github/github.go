@@ -202,6 +202,23 @@ func (g *Github) init(app core.App) {
 				fmt.Println("Waiting for github authentication response...")
 				g.clientHasSet.Wait()
 			}
+			fmt.Println("Got authentication response")
+			if repos, _, err := g.client.Repositories.List("", nil); err != nil {
+				logcritf("Couldn't get repos list after authenticating, something has gone wrong, clear cache and retry")
+			} else {
+				fmt.Println("Found repositories:")
+				for _, repo := range repos {
+					repostr := fmt.Sprintf("%s/%s ", *repo.Owner.Login, *repo.Name)
+					if *repo.Private == true {
+						repostr += "🔒"
+					}
+					if *repo.Fork == true {
+						repostr += "🍴"
+					}
+					fmt.Println(repostr)
+				}
+			}
+
 			g.clientHasSet.L.Unlock()
 		}
 	}
@@ -222,7 +239,7 @@ func (g *Github) AttachToApp(app core.App) error {
 	g.setupDeployKey(appConfig)
 	g.setupHooks(appConfig)
 
-	app.Listen(core.SignalBuildStarted, g.onBuildStarted)
+	app.Listen(core.SignalBuildProvisioning, g.onBuildStarted)
 	app.Listen(core.SignalBuildComplete, g.onBuildFinished)
 	return nil
 }

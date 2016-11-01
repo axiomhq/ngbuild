@@ -26,7 +26,7 @@ func main() {
 	// token, _ := app.NewBuild("pulls/24", nil)
 	// build, _ := app.GetBuild(token)
 
-	slack.New()
+	slack.NewSlack()
 
 	// s.BuildFailed(app, build)
 
