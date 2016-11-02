@@ -183,9 +183,14 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 	if a == nil {
 		return "", errors.New("a is nil")
 	}
+	var appcfg struct {
+		BuildRunner string `mapstructure:"buildRunner"`
+	}
+	applyConfig(a.Name(), &appcfg)
 
-	if config.BuildRunner == "" {
-		config.BuildRunner = "build.sh"
+	config.BuildRunner = "build.sh"
+	if appcfg.BuildRunner != "" {
+		config.BuildRunner = appcfg.BuildRunner
 	}
 
 	for {

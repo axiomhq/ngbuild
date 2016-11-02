@@ -319,7 +319,9 @@ func (w *Web) endMonitorBuild(data map[string]string) {
 
 	token := data["token"]
 	appName := data["app"]
-	w.builds[token].Unref()
+	if build, ok := w.builds[token]; ok {
+		build.Unref()
+	}
 	delete(w.builds, token)
 
 	w.stats[fmt.Sprintf("(%s)current tracked builds", appName)] = len(w.builds)

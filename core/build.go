@@ -168,9 +168,13 @@ func (b *build) logcritf(str string, args ...interface{}) {
 }
 
 // provisionDirectory will return an empty unique directory to work in
-func provisionDirectory() (string, error) {
-	// TODO , make this use a specific place instead of just tempdir
-	return ioutil.TempDir(os.TempDir(), "ngbuild-workspace")
+func provisionDirectory(basedir string) (string, error) {
+	if basedir == "" {
+		basedir = os.TempDir()
+	}
+
+	os.MkdirAll(basedir, 0766)
+	return ioutil.TempDir(basedir, "ngbuild-workspace-")
 }
 
 func cleanupDirectory(directory string) error {
@@ -202,7 +206,12 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	defer func() { b.state = buildStateFinished }()
 
 	b.loginfof("provisioning")
-	provisionedDirectory, err := provisionDirectory()
+	var appConfig struct {
+		BuildLocation string `mapstructure:"buildLocation"`
+	}
+	b.parentApp.GlobalConfig(&appConfig)
+
+	provisionedDirectory, err := provisionDirectory(appConfig.BuildLocation)
 	if err != nil {
 		return err
 	}
