@@ -230,6 +230,8 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	}
 
 	cmd := exec.Command(sh, filepath.Join(provisionedDirectory, config.BuildRunner))
+	cmd.Dir = provisionedDirectory
+
 	// gets child processes killed, probably linux only
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	b.cmd = cmd
@@ -373,13 +375,23 @@ func (b *build) Stop() error {
 
 	b.m.Lock()
 	defer b.m.Unlock()
-	pgid, err := syscall.Getpgid(b.cmd.Process.Pid)
-	if err != nil {
-		return err
-	}
+	if b.cmd == nil || b.cmd.Process == nil {
+		b.logcritf("unknown process asked to stop")
+		b.state.SetBuildState(buildStateFinished)
+		b.exitCode = 505
+		b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/complete/token:%s", b.parentApp.Name(), b.Token()))
+		if b.stdpipes != nil {
+			b.stdpipes.Done <- struct{}{}
+		}
+	} else {
+		pgid, err := syscall.Getpgid(b.cmd.Process.Pid)
+		if err != nil {
+			return err
+		}
 
-	if err := syscall.Kill(-pgid, 15); err != nil {
-		return err
+		if err := syscall.Kill(-pgid, 15); err != nil {
+			return err
+		}
 	}
 	b.loginfof("Stopped build")
 

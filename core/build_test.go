@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os/exec"
 	"testing"
@@ -268,9 +269,21 @@ func getMockApp() App {
 	app := &mockApp{}
 	app.On("SendEvent", mock.AnythingOfType("string")).Return()
 	app.On("Name").Return("MockApp")
-	app.On("Logcritf", mock.AnythingOfType("string"), mock.AnythingOfType("[]interface {}")).Return()
-	app.On("Logwarnf", mock.AnythingOfType("string"), mock.AnythingOfType("[]interface {}")).Return()
-	app.On("Loginfof", mock.AnythingOfType("string"), mock.AnythingOfType("[]interface {}")).Return()
+	app.On("Logcritf", mock.AnythingOfType("string"), mock.AnythingOfType("[]interface {}")).Run(func(args mock.Arguments) {
+		str := args.Get(0).(string)
+		fmts := args.Get(1).([]interface{})
+		fmt.Printf(str+"\n", fmts...)
+	}).Return()
+	app.On("Logwarnf", mock.AnythingOfType("string"), mock.AnythingOfType("[]interface {}")).Run(func(args mock.Arguments) {
+		str := args.Get(0).(string)
+		fmts := args.Get(1).([]interface{})
+		fmt.Printf(str+"\n", fmts...)
+	}).Return()
+	app.On("Loginfof", mock.AnythingOfType("string"), mock.AnythingOfType("[]interface {}")).Run(func(args mock.Arguments) {
+		str := args.Get(0).(string)
+		fmts := args.Get(1).([]interface{})
+		fmt.Printf(str+"\n", fmts...)
+	}).Return()
 	app.On("GlobalConfig", mock.Anything).Return(nil)
 
 	return app
@@ -363,7 +376,6 @@ func TestRunBuildSyncFailure(t *testing.T) {
 func TestRunBuildSyncDeadline(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
-
 	app := getMockApp()
 	b := build{token: "testtoken", parentApp: app}
 	b.config = &BuildConfig{
