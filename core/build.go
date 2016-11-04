@@ -264,7 +264,7 @@ func (b *build) runBuildSync(config BuildConfig) error {
 		cmd.Process.Kill()
 		return err
 	}
-	b.loginfof("successfully started build")
+	b.loginfof("Command started, pid=%d", cmd.Process.Pid)
 	b.state = buildStateStarted
 
 runSyncLoop:
@@ -286,6 +286,13 @@ runSyncLoop:
 				b.logcritf("Couldn't stop build: %s", err)
 				b.buildFinished(500)
 				return err
+			}
+		case <-time.After(time.Second * 5):
+			// every so often we need to check that the pid is still going, to avoid situations where
+			// the stderr/out pipes are still open, but the pid has died
+			if exists, _ := Exists(fmt.Sprintf("/proc/%d", cmd.Process.Pid)); exists == false {
+				b.logcritf("Process died but stdpipes are still open(zombied): %d", cmd.Process.Pid)
+				b.stdpipes.Done <- struct{}{}
 			}
 		}
 	}
