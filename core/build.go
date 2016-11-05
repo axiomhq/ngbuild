@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -167,9 +168,13 @@ func (b *build) logcritf(str string, args ...interface{}) {
 }
 
 // provisionDirectory will return an empty unique directory to work in
-func provisionDirectory() (string, error) {
-	// TODO , make this use a specific place instead of just tempdir
-	return ioutil.TempDir(os.TempDir(), "ngbuild-workspace")
+func provisionDirectory(basedir string) (string, error) {
+	if basedir == "" {
+		basedir = os.TempDir()
+	}
+
+	os.MkdirAll(basedir, 0766)
+	return ioutil.TempDir(basedir, "ngbuild-workspace-")
 }
 
 func cleanupDirectory(directory string) error {
@@ -201,7 +206,12 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	defer func() { b.state = buildStateFinished }()
 
 	b.loginfof("provisioning")
-	provisionedDirectory, err := provisionDirectory()
+	var appConfig struct {
+		BuildLocation string `mapstructure:"buildLocation"`
+	}
+	b.parentApp.GlobalConfig(&appConfig)
+
+	provisionedDirectory, err := provisionDirectory(appConfig.BuildLocation)
 	if err != nil {
 		return err
 	}
@@ -211,7 +221,17 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	b.buildStartTime = time.Now().UTC()
 	b.buildDirectory = provisionedDirectory
 
-	cmd := exec.Command("/bin/sh", filepath.Join(provisionedDirectory, config.BuildRunner))
+	// read the first line of the shell script to figure out what to run it in
+	script, _ := ioutil.ReadFile("build.sh")
+	firstLine := strings.Trim(strings.Split(string(script), "\n")[0], " \n\r\t")
+	sh := "/bin/sh"
+	if strings.HasPrefix(firstLine, "#!") {
+		sh = strings.SplitN(firstLine, "#!", 2)[1]
+	}
+
+	cmd := exec.Command(sh, filepath.Join(provisionedDirectory, config.BuildRunner))
+	cmd.Dir = provisionedDirectory
+
 	// gets child processes killed, probably linux only
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	b.cmd = cmd
@@ -244,7 +264,7 @@ func (b *build) runBuildSync(config BuildConfig) error {
 		cmd.Process.Kill()
 		return err
 	}
-	b.loginfof("successfully started build")
+	b.loginfof("Command started, pid=%d", cmd.Process.Pid)
 	b.state = buildStateStarted
 
 runSyncLoop:
@@ -266,6 +286,13 @@ runSyncLoop:
 				b.logcritf("Couldn't stop build: %s", err)
 				b.buildFinished(500)
 				return err
+			}
+		case <-time.After(time.Second * 5):
+			// every so often we need to check that the pid is still going, to avoid situations where
+			// the stderr/out pipes are still open, but the pid has died
+			if exists, _ := Exists(fmt.Sprintf("/proc/%d", cmd.Process.Pid)); exists == false {
+				b.logcritf("Process died but stdpipes are still open(zombied): %d", cmd.Process.Pid)
+				b.stdpipes.Done <- struct{}{}
 			}
 		}
 	}
@@ -296,6 +323,7 @@ func (b *build) Start() error {
 	}
 
 	b.state = buildStateWaitingForProvisioning
+	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/provisioning/token:%s", b.parentApp.Name(), b.Token()))
 
 	var config BuildConfig
 	config = *b.config
@@ -354,13 +382,23 @@ func (b *build) Stop() error {
 
 	b.m.Lock()
 	defer b.m.Unlock()
-	pgid, err := syscall.Getpgid(b.cmd.Process.Pid)
-	if err != nil {
-		return err
-	}
+	if b.cmd == nil || b.cmd.Process == nil {
+		b.logcritf("unknown process asked to stop")
+		b.state.SetBuildState(buildStateFinished)
+		b.exitCode = 505
+		b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/complete/token:%s", b.parentApp.Name(), b.Token()))
+		if b.stdpipes != nil {
+			b.stdpipes.Done <- struct{}{}
+		}
+	} else {
+		pgid, err := syscall.Getpgid(b.cmd.Process.Pid)
+		if err != nil {
+			return err
+		}
 
-	if err := syscall.Kill(-pgid, 15); err != nil {
-		return err
+		if err := syscall.Kill(-pgid, 15); err != nil {
+			return err
+		}
 	}
 	b.loginfof("Stopped build")
 

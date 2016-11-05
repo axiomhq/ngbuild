@@ -242,7 +242,6 @@ func writeTo(path string, reader io.Reader) {
 		var readBuf [1024 * 4]byte
 		var n int
 		n, err = reader.Read(readBuf[:])
-		loginfof("%s: Read %d data: %s", path, n, string(readBuf[:n]))
 
 		file, oerr := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, os.ModeAppend)
 		if oerr != nil {
@@ -319,7 +318,9 @@ func (w *Web) endMonitorBuild(data map[string]string) {
 
 	token := data["token"]
 	appName := data["app"]
-	w.builds[token].Unref()
+	if build, ok := w.builds[token]; ok {
+		build.Unref()
+	}
 	delete(w.builds, token)
 
 	w.stats[fmt.Sprintf("(%s)current tracked builds", appName)] = len(w.builds)

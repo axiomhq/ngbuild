@@ -28,9 +28,10 @@ const (
 	appnameRE = `app:(?P<app>\w+)`
 	tokenRE   = `token:(?P<token>[a-zA-Z0-9_=+-]+)`
 
-	SignalBuildComplete = `\/build\/` + appnameRE + `\/complete\/` + tokenRE + `$`
-	SignalBuildStarted  = `\/build\/` + appnameRE + `\/started\/` + tokenRE + `$`
-	EventCoreLog        = `\/log\/` + appnameRE + `\/logtype:(?P<logtype>\w+)\/(?P<logmessage>.*)`
+	SignalBuildProvisioning = `\/build\/` + appnameRE + `\/provisioning\/` + tokenRE + `$`
+	SignalBuildComplete     = `\/build\/` + appnameRE + `\/complete\/` + tokenRE + `$`
+	SignalBuildStarted      = `\/build\/` + appnameRE + `\/started\/` + tokenRE + `$`
+	EventCoreLog            = `\/log\/` + appnameRE + `\/logtype:(?P<logtype>\w+)\/(?P<logmessage>.*)`
 )
 
 type (
