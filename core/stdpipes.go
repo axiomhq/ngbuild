@@ -162,10 +162,8 @@ func (p *stdpipes) readLoop(pipetype int) {
 		}
 
 		waiter := p.getwaiter(pipetype)
-		waiter.L.Lock()
 		p.m.Unlock()
 		waiter.Broadcast()
-		waiter.L.Unlock()
 	}
 
 	if p.getclosed(typeStdout) && p.getclosed(typeStderr) {

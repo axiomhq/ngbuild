@@ -1,6 +1,7 @@
 {
    "artifactsLocation":"/tmp/ngbuild/artifacts/" ,
    "buildLocation":"/tmp/ngbuild/builds/",
+   "buildRunner":"build.sh",
    "httpListenPort":"8080",
    "hostname": "ngbuilders-gord.illuminaughty.io",
    

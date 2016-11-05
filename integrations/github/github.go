@@ -202,6 +202,23 @@ func (g *Github) init(app core.App) {
 				fmt.Println("Waiting for github authentication response...")
 				g.clientHasSet.Wait()
 			}
+			fmt.Println("Got authentication response")
+			if repos, _, err := g.client.Repositories.List("", nil); err != nil {
+				logcritf("Couldn't get repos list after authenticating, something has gone wrong, clear cache and retry")
+			} else {
+				fmt.Println("Found repositories:")
+				for _, repo := range repos {
+					repostr := fmt.Sprintf("%s/%s ", *repo.Owner.Login, *repo.Name)
+					if *repo.Private == true {
+						repostr += "🔒"
+					}
+					if *repo.Fork == true {
+						repostr += "🍴"
+					}
+					fmt.Println(repostr)
+				}
+			}
+
 			g.clientHasSet.L.Unlock()
 		}
 	}
@@ -222,7 +239,7 @@ func (g *Github) AttachToApp(app core.App) error {
 	g.setupDeployKey(appConfig)
 	g.setupHooks(appConfig)
 
-	app.Listen(core.SignalBuildStarted, g.onBuildStarted)
+	app.Listen(core.SignalBuildProvisioning, g.onBuildStarted)
 	app.Listen(core.SignalBuildComplete, g.onBuildFinished)
 	return nil
 }
@@ -293,13 +310,28 @@ func (g *Github) trackPullRequest(app *githubApp, event *github.PullRequestEvent
 	pull := event.PullRequest
 	pullID := strconv.Itoa(*pull.ID)
 
+	// first thing we need to do is check to see if this pull request comes from a collaborator
+	// otherwise we are letting randos run arbutary code on our system. this will be essentially until
+	// we have some filesystem container system
+	owner := *pull.Base.Repo.Owner.Login
+	repo := *pull.Base.Repo.Name
+	user := *pull.User.Login
+	isCollaborator, _, err := g.client.Repositories.IsCollaborator(owner, repo, user)
+	if err != nil {
+		logcritf("Couldn't check collaborator status on %s: %s", pullID, err)
+		return
+	} else if isCollaborator == false {
+		logwarnf("Ignoring pull request %s, non collaborator: %s", pullID, user)
+		return
+	}
+
 	g.m.Lock()
 	defer g.m.Unlock()
 
 	// check for ignored branches
 	for _, branchIgnore := range app.config.IgnoredBranches {
 		if branchIgnore == *pull.Base.Ref {
-			logwarnf("Ignoring pull request, is an ignored branch")
+			logwarnf("Ignoring pull request %s, is an ignored branch", pullID)
 			return
 		}
 	}
