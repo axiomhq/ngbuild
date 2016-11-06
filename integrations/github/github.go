@@ -377,6 +377,7 @@ func (g *Github) buildPullRequest(app *githubApp, pull *github.PullRequest) {
 
 	buildConfig.SetMetadata("github:BuildType", "pullrequest")
 	buildConfig.SetMetadata("github:PullRequestID", pullID)
+	buildConfig.SetMetadata("github:PullNumber", fmt.Sprintf("%d", *pull.Number))
 	buildConfig.SetMetadata("github:HeadHash", headCommit)
 	buildConfig.SetMetadata("github:HeadOwner", headOwner)
 	buildConfig.SetMetadata("github:HeadRepo", headRepo)
