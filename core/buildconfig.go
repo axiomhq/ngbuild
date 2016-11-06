@@ -37,7 +37,7 @@ type marshalledBuildConfig struct {
 // Marshal will marshall this structure into a string
 func (conf *BuildConfig) Marshal() ([]byte, error) {
 	conf.m.RLock()
-	conf.m.RUnlock()
+	defer conf.m.RUnlock()
 
 	marshalledConf := marshalledBuildConfig{
 		Config:   conf,
