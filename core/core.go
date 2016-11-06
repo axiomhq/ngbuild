@@ -93,7 +93,7 @@ type (
 
 		Group string
 
-		Integrations []Integration
+		Integrations []Integration `json:"-"`
 
 		// Not required block
 

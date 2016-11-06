@@ -2,6 +2,7 @@ package github
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/google/go-github/github"
 	"github.com/watchly/ngbuild/core"
@@ -38,7 +39,8 @@ func (g *Github) updateBuildStatus(app core.App, build core.Build) {
 	}
 
 	webStatusURL := build.WebStatusURL()
-	context := fmt.Sprintf("NGBuildService/github/%s", app.Name())
+	hostname, _ := os.Hostname()
+	context := fmt.Sprintf("%s/NGBuild/github/%s", hostname, app.Name())
 	commitStatus := &github.RepoStatus{
 		State:       &state,
 		TargetURL:   &webStatusURL,
