@@ -382,7 +382,7 @@ func (s *Slack) getOAuth2Config() *oauth2.Config {
 		ClientID:     s.clientID,
 		ClientSecret: s.clientSecret,
 		Endpoint:     oslack.Endpoint,
-		RedirectURL:  fmt.Sprintf("https://%s/cb/auth/slack", s.hostname),
+		RedirectURL:  fmt.Sprintf("%s/cb/auth/slack", core.GetHTTPServerURL()),
 		Scopes:       oauth2Scopes,
 	}
 }
