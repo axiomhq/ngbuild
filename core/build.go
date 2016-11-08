@@ -224,8 +224,9 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	// read the first line of the shell script to figure out what to run it in
 	script, _ := ioutil.ReadFile("build.sh")
 	firstLine := strings.Trim(strings.Split(string(script), "\n")[0], " \n\r\t")
-	sh := "/bin/sh"
+	sh := "/bin/bash"
 	if strings.HasPrefix(firstLine, "#!") {
+		b.loginfof("changing build.sh runner to %s", firstLine)
 		sh = strings.SplitN(firstLine, "#!", 2)[1]
 	}
 
