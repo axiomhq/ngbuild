@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -382,7 +383,7 @@ func (s *Slack) getOAuth2Config() *oauth2.Config {
 		ClientID:     s.clientID,
 		ClientSecret: s.clientSecret,
 		Endpoint:     oslack.Endpoint,
-		RedirectURL:  fmt.Sprintf("%s/cb/auth/slack", core.GetHTTPServerURL()),
+		RedirectURL:  fmt.Sprintf("%s/cb/auth/slack", strings.Replace(core.GetHTTPServerURL(), "http://", "https://")),
 		Scopes:       oauth2Scopes,
 	}
 }
