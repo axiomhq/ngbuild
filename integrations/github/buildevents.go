@@ -10,11 +10,20 @@ import (
 func (g *Github) updateBuildStatus(app core.App, build core.Build) {
 	// update github status
 	buildToken := build.Token()
-	baseRepo := build.Config().GetMetadata("github:BaseRepo")
+	buildType := build.Config().GetMetadata("github:BuildType")
+
 	baseOwner := build.Config().GetMetadata("github:BaseOwner")
+	baseRepo := build.Config().GetMetadata("github:BaseRepo")
 	headCommit := build.Config().GetMetadata("github:HeadHash")
 
-	if baseRepo == "" || baseOwner == "" || headCommit == "" {
+	branchBuildCommit := build.Config().GetMetadata("github:BranchBuildCommit")
+	branchBuildOwner := build.Config().GetMetadata("github:BranchBuildOwner")
+	branchBuildRepo := build.Config().GetMetadata("github:BranchBuildRepo")
+
+	if buildType == "pullrequest" && (baseRepo == "" || baseOwner == "" || headCommit == "") {
+		logwarnf("Couldn't extract github info from: %s", buildToken)
+		return
+	} else if buildType == "commit" && (branchBuildRepo == "" || branchBuildOwner == "" || branchBuildCommit == "") {
 		logwarnf("Couldn't extract github info from: %s", buildToken)
 		return
 	}
@@ -46,7 +55,20 @@ func (g *Github) updateBuildStatus(app core.App, build core.Build) {
 		Context:     &context,
 	}
 
-	_, _, err := g.client.Repositories.CreateStatus(baseOwner, baseRepo, headCommit, commitStatus)
+	owner := ""
+	repo := ""
+	commit := ""
+	switch buildType {
+	case "pullrequest":
+		owner = baseOwner
+		repo = baseRepo
+		commit = headCommit
+	case "commit":
+		owner = branchBuildOwner
+		repo = branchBuildRepo
+		commit = branchBuildCommit
+	}
+	_, _, err := g.client.Repositories.CreateStatus(owner, repo, commit, commitStatus)
 	if err != nil {
 		logcritf("Couldn't set status for %s/%s:%s, %s", baseOwner, baseRepo, headCommit, err)
 	}
@@ -71,8 +93,8 @@ func (g *Github) onBuildStarted(data map[string]string) {
 		logcritf("Couldn't get build `%s`: %s", buildToken, err)
 		return
 	}
-	build.Ref()
 
+	g.trackBuild(build)
 	g.updateBuildStatus(app.app, build)
 }
 
@@ -94,7 +116,7 @@ func (g *Github) onBuildFinished(data map[string]string) {
 		logcritf("Couldn't get build `%s`: %s", buildToken, err)
 		return
 	}
-	build.Unref()
 
+	g.untrackBuild(build)
 	g.updateBuildStatus(app.app, build)
 }

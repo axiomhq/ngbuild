@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
@@ -36,6 +35,7 @@ type githubConfig struct {
 	IgnoredBranches []string `mapstructure:"ignoredBranches"`
 	PublicKey       string   `mapstructure:"publicKey"`
 
+	BuildBranches        []string `mapstructure:"buildBranches"`
 	CancelOnNewCommit    bool     `mapstructure:"cancelOnNewCommit"`
 	MergeOnPass          bool     `mapstructure:"mergeOnPass"`
 	MergeOnPassAuthWords []string `mapstructure:"mergeOnPassAuthWords"`
@@ -57,6 +57,7 @@ type Github struct {
 	clientHasSet           *sync.Cond
 
 	trackedPullRequests map[string]pullRequestStatus
+	trackedBuilds       []core.Build
 }
 
 // New ...
@@ -78,7 +79,7 @@ func (g *Github) Identifier() string { return "github" }
 // IsProvider ...
 func (g *Github) IsProvider(source string) bool {
 	loginfof("Asked to provide for %s", source)
-	return strings.HasPrefix(source, "git@github.com:")
+	return strings.HasPrefix(source, "git@github.com:") || source == ""
 }
 
 // ProvideFor ...
@@ -108,53 +109,6 @@ func (g *Github) handleGithubAuth(resp http.ResponseWriter, req *http.Request) {
 	g.setClient(token)
 
 	resp.Write([]byte("Thanks! you can close this tab now."))
-}
-
-func (g *Github) handleGithubEvent(resp http.ResponseWriter, req *http.Request) {
-	splits := strings.Split(req.URL.Path, "/")
-	appIndex := len(splits) - 1
-
-	appName := splits[appIndex]
-
-	app, ok := g.apps[appName]
-	if ok == false {
-		logwarnf("Got unknown webhook app name: %s", appName)
-		return
-	}
-
-	eventType := req.Header.Get("X-GitHub-Event")
-	if eventType == "" {
-		logwarnf("No event type specified in webhook")
-		return
-	}
-
-	body, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		logcritf("Error decoding webhook %s:%s", req.URL.RawPath, err)
-		return
-	}
-	loginfof("Got webhook event: %s", eventType)
-
-	switch eventType {
-	case "commit_comment":
-		g.handleGithubCommitComment(app, body)
-	case "delete":
-		g.handleGithubDelete(app, body)
-	case "pull_request":
-		g.handleGithubPullRequest(app, body)
-	case "issue_comment":
-		g.handleGithubIssueComment(app, body)
-	case "pull_request_review_comment":
-		g.handleGithubPullRequestReviewComment(app, body)
-	case "push":
-		g.handleGithubPush(app, body)
-
-	default:
-		logwarnf("Could not handle event type: %s", eventType)
-		return
-	}
-
-	return
 }
 
 func (g *Github) getOauthConfig() *oauth2.Config {
@@ -302,6 +256,35 @@ func (g *Github) setupHooks(appConfig *githubApp) {
 // Shutdown ...
 func (g *Github) Shutdown() {}
 
+// hold the g.m lock when you call this
+func (g *Github) trackBuild(build core.Build) {
+	for _, trackedBuild := range g.trackedBuilds {
+		if trackedBuild.Token() == build.Token() {
+			return
+		}
+	}
+	build.Ref()
+	g.trackedBuilds = append(g.trackedBuilds, build)
+}
+
+// hold the g.m.lock when you call this
+func (g *Github) untrackBuild(build core.Build) {
+	buildIndex := -1
+	for i, trackedBuild := range g.trackedBuilds {
+		if trackedBuild.Token() == build.Token() {
+			buildIndex = i
+			break
+		}
+	}
+
+	if buildIndex < 0 {
+		return
+	}
+
+	g.trackedBuilds[buildIndex].Unref()
+	g.trackedBuilds = append(g.trackedBuilds[:buildIndex], g.trackedBuilds[buildIndex+1:]...)
+}
+
 func (g *Github) trackPullRequest(app *githubApp, event *github.PullRequestEvent) {
 	if event.PullRequest == nil {
 		logcritf("pull request is nil")
@@ -392,7 +375,9 @@ func (g *Github) buildPullRequest(app *githubApp, pull *github.PullRequest) {
 		Group: pullID,
 	}
 
+	buildConfig.SetMetadata("github:BuildType", "pullrequest")
 	buildConfig.SetMetadata("github:PullRequestID", pullID)
+	buildConfig.SetMetadata("github:PullNumber", fmt.Sprintf("%d", *pull.Number))
 	buildConfig.SetMetadata("github:HeadHash", headCommit)
 	buildConfig.SetMetadata("github:HeadOwner", headOwner)
 	buildConfig.SetMetadata("github:HeadRepo", headRepo)
