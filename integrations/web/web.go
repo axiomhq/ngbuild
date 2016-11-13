@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
@@ -92,6 +91,46 @@ func (w *Web) cacheDir(appName, buildToken string) string {
 	return dir
 }
 
+func (w *Web) rebuild(resp http.ResponseWriter, req *http.Request) {
+	w.m.RLock()
+	defer w.m.RUnlock()
+
+	data, err := core.RegexpNamedGroupsMatch(reBuildStatus, req.URL.Path)
+	if err != nil {
+		return
+	}
+
+	appName := data["appname"]
+	buildToken := data["buildtoken"]
+	cacheDir := w.cacheDir(appName, buildToken)
+
+	if app, ok := w.apps[appName]; ok {
+		buildConfig, err := core.UnmarshalBuildConfig(filepath.Join(cacheDir, "buildconfig.json"))
+		if err != nil {
+			logwarnf("error deserializing build config: %s", err)
+			resp.WriteHeader(502)
+			return
+		}
+
+		token, err := app.NewBuild(buildConfig.Group, buildConfig)
+		if err != nil {
+			logcritf("error creating new build: %s", err)
+			resp.WriteHeader(502)
+			return
+		}
+		baseURL := fmt.Sprintf("/web/%s/%s/", appName, token)
+
+		// I don't know how to do a redirect in this go api, all i have is http status and response writing
+		output := fmt.Sprintf(`<html><head></head><body><a href="%s">click here</a></body></html>`, baseURL)
+		resp.Write([]byte(output))
+	} else {
+		logwarnf("no app '%s' found", appName)
+		resp.WriteHeader(404)
+		return
+	}
+
+}
+
 func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	w.m.RLock()
 	defer w.m.RUnlock()
@@ -103,7 +142,14 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 
 	appName := data["appname"]
 	buildToken := data["buildtoken"]
-	//action := data["action"]
+
+	baseURL := fmt.Sprintf("/web/%s/%s/", appName, buildToken)
+	action := data["action"]
+
+	if action == "rebuild" {
+		w.rebuild(resp, req)
+		return
+	}
 
 	app := w.apps[appName]
 	if app == nil {
@@ -146,8 +192,11 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 		resp.Write([]byte(fmt.Sprintf("Couldn't read stderr: %s", err)))
 	}
 
-	config := core.BuildConfig{}
-	json.Unmarshal(buildConfigRaw, &config)
+	config, err := core.UnmarshalBuildConfig(filepath.Join(cacheDir, "buildconfig.json"))
+	if err != nil {
+		resp.Write([]byte(fmt.Sprintf("Couldn't open buildconfig.json: %s", err)))
+		return
+	}
 
 	output := `<html><head>
 	<title>NGBuild build output</title>
@@ -202,7 +251,12 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.7.0/highlight.min.js"></script>
 	<script>hljs.initHighlightingOnLoad();</script>
 	</head><body>`
-	output += fmt.Sprintf(`<h1><a href="%s">%s</a></h1>`, config.URL, config.Title)
+
+	output += `<h1>`
+	output += fmt.Sprintf(`<a href="%s">%s</a>`, config.URL, config.Title)
+	output += fmt.Sprintf(`<small> [<a href="%s">rebuild</a>]</small>`, baseURL+"/rebuild")
+	output += `</h1>`
+
 	output += "<h3>Stdout:</h3>"
 	output += `<pre><code class="nohighlight">`
 	output += html.EscapeString((string)(stdoutRaw))
@@ -285,7 +339,7 @@ func (w *Web) startMonitorBuild(data map[string]string) {
 
 	cacheDir := w.cacheDir(appName, token)
 
-	serializedConfig, err := json.MarshalIndent(build.Config(), "", "    ")
+	serializedConfig, err := build.Config().Marshal()
 	if err != nil {
 		logcritf("Couldn't serialize config: %s", err)
 		return
