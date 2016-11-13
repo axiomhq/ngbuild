@@ -51,8 +51,8 @@ func (s *stdreader) Read(p []byte) (n int, err error) {
 type stdpipes struct {
 	m sync.RWMutex
 
-	stdout io.Reader
-	stderr io.Reader
+	stdout io.ReadCloser
+	stderr io.ReadCloser
 
 	stdoutCache bytes.Buffer
 	stderrCache bytes.Buffer
@@ -67,7 +67,7 @@ type stdpipes struct {
 }
 
 // newStdpipes will return a new stdpipes structure to manage the given pipes
-func newStdpipes(stdoutPipe io.Reader, stderrPipe io.Reader) *stdpipes {
+func newStdpipes(stdoutPipe io.ReadCloser, stderrPipe io.ReadCloser) *stdpipes {
 	pipes := &stdpipes{
 		stdoutWait: sync.NewCond(&sync.Mutex{}),
 		stderrWait: sync.NewCond(&sync.Mutex{}),
@@ -146,10 +146,9 @@ func (p *stdpipes) readLoop(pipetype int) {
 		var buf [1024]byte
 		var n int
 		var err, werr error
-
 		n, err = p.getpipe(pipetype).Read(buf[:])
-		p.m.Lock()
 
+		p.m.Lock()
 		werr = writeall(p.getcache(pipetype), buf[:n])
 		if err != nil || werr != nil {
 			switch pipetype {
@@ -219,10 +218,10 @@ func (p *stdpipes) GetCache(pipetype, position int) (buf []byte, closed bool) {
 		// because we have the waiter.L lock
 		firstLoop := true
 		for {
-			if firstLoop == false {
-				p.m.Lock()
-			} else {
+			if firstLoop == true {
 				firstLoop = false
+			} else {
+				p.m.Lock()
 			}
 
 			if p.getcache(pipetype).Len() > oldlen || p.getclosed(pipetype) {
@@ -250,4 +249,10 @@ func (p *stdpipes) GetCache(pipetype, position int) (buf []byte, closed bool) {
 	}
 
 	return
+}
+
+func (p *stdpipes) Close() {
+	p.stdout.Close()
+	p.stderr.Close()
+	p.Done <- struct{}{}
 }

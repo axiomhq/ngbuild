@@ -126,7 +126,9 @@ func (a *app) Shutdown() {
 	}
 	for _, builds := range a.builds {
 		for _, build := range builds {
-			build.Stop()
+			if build.HasStopped() == false {
+				build.Stop()
+			}
 		}
 	}
 }
@@ -248,13 +250,13 @@ func (a *app) GetBuildHistory(group string) []Build {
 
 func (a *app) Loginfof(str string, args ...interface{}) {
 	args = append([]interface{}{a.Name()}, args...)
-	log := logcritf("(%s):"+str, args...)
+	log := loginfof("(%s):"+str, args...)
 	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:crit/%s", a.Name(), log))
 }
 
 func (a *app) Logwarnf(str string, args ...interface{}) {
 	args = append([]interface{}{a.Name()}, args...)
-	log := logcritf("(%s):"+str, args...)
+	log := logwarnf("(%s):"+str, args...)
 	a.SendEvent(fmt.Sprintf("/log/app:%s/logtype:warn/%s", a.Name(), log))
 }
 

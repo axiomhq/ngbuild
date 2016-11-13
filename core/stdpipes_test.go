@@ -31,6 +31,10 @@ func (m *mockReader) Read(p []byte) (int, error) {
 	return m.readFn(p)
 }
 
+func (m *mockReader) Close() error {
+	return nil
+}
+
 func TestStdPipes(t *testing.T) {
 	assert := assert.New(t)
 	testMarker := []byte("::testmarker::")

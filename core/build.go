@@ -8,12 +8,30 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 )
+
+var reProcZombied = regexp.MustCompile(`State:\s*Z\s\(zombie\)`)
+
+// hasPIDExited will return true if the pid has zombied/exited
+func hasPIDExited(pid int) bool {
+	pidDir := filepath.Join("/proc", fmt.Sprintf("%d", pid))
+	if exists, _ := Exists(pidDir); exists == false {
+		return true
+	}
+
+	status, err := ioutil.ReadFile(filepath.Join(pidDir, "status"))
+	if err != nil {
+		println("Error reading", pidDir+"/status", err)
+		return true
+	}
+
+	return reProcZombied.Match(status)
+}
 
 type buildState uint32
 
@@ -160,7 +178,7 @@ func (b *build) loginfof(str string, args ...interface{}) {
 }
 
 func (b *build) logwarnf(str string, args ...interface{}) {
-	b.parentApp.Loginfof(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
+	b.parentApp.Logwarnf(fmt.Sprintf("(%s): %s", b.Token(), str), args...)
 }
 
 func (b *build) logcritf(str string, args ...interface{}) {
@@ -221,16 +239,7 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	b.buildStartTime = time.Now().UTC()
 	b.buildDirectory = provisionedDirectory
 
-	// read the first line of the shell script to figure out what to run it in
-	script, _ := ioutil.ReadFile("build.sh")
-	firstLine := strings.Trim(strings.Split(string(script), "\n")[0], " \n\r\t")
-	sh := "/bin/bash"
-	if strings.HasPrefix(firstLine, "#!") {
-		b.loginfof("changing build.sh runner to %s", firstLine)
-		sh = strings.SplitN(firstLine, "#!", 2)[1]
-	}
-
-	cmd := exec.Command(sh, filepath.Join(provisionedDirectory, config.BuildRunner))
+	cmd := exec.Command(filepath.Join(provisionedDirectory, config.BuildRunner))
 	cmd.Dir = provisionedDirectory
 
 	// gets child processes killed, probably linux only
@@ -272,6 +281,7 @@ runSyncLoop:
 	for {
 		select {
 		case <-b.stdpipes.Done:
+			b.loginfof("Build exited, waiting...")
 			err = cmd.Wait() // stdout/err have finished, just need to wait for the process to exit
 			if err != nil {
 				b.logwarnf("Build exited with non zero error code")
@@ -291,9 +301,11 @@ runSyncLoop:
 		case <-time.After(time.Second * 5):
 			// every so often we need to check that the pid is still going, to avoid situations where
 			// the stderr/out pipes are still open, but the pid has died
-			if exists, _ := Exists(fmt.Sprintf("/proc/%d", cmd.Process.Pid)); exists == false {
-				b.logcritf("Process died but stdpipes are still open(zombied): %d", cmd.Process.Pid)
-				b.stdpipes.Done <- struct{}{}
+			// this is primaraly a problem with nodejs as it allows nodejs programs
+			// to not flush their stdout/err before exiting, leaving stdout/err open forever
+			if hasPIDExited(cmd.Process.Pid) {
+				b.logcritf("Process exited but stdpipes are still open(zombied): %d", cmd.Process.Pid)
+				b.stdpipes.Close()
 			}
 		}
 	}
@@ -328,6 +340,7 @@ func (b *build) Start() error {
 
 	var config BuildConfig
 	config = *b.config
+
 	if config.Deadline < time.Duration(time.Millisecond) {
 		b.logwarnf("deadline not set in config, defaulting to 30 minutes")
 		config.Deadline = time.Minute * 30
