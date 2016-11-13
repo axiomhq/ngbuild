@@ -8,4 +8,7 @@ mkdir -p src/github.com/watchly/
 ln -s "`pwd`" "`pwd`/src/github.com/watchly/ngbuild"
 GOPATH=$GOPATH:`pwd`
 
+go get -u github.com/watchly/ngbuild
+go get -u github.com/stretchr/testify
+
 go test -v -race ./...
