@@ -93,6 +93,7 @@ func TestSignal(t *testing.T) {
 	build := &mocks.Build{}
 
 	exitCodeCall := build.On("ExitCode")
+	build.On("Config").Return(&core.BuildConfig{})
 
 	getBuildCall.Return(build, nil)
 
