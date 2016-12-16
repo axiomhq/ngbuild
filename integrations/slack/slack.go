@@ -98,10 +98,11 @@ func (s *Slack) AttachToApp(app core.App) error {
 		app.Config("slack", &cfg)
 		if cfg.ClientID == "" || cfg.ClientSecret == "" {
 			printWarning("Configuration for app `%s` does not have Slack OAuth credentials", app.Name())
+			return nil
 		} else {
 			s.clientID = cfg.ClientID
 			s.clientSecret = cfg.ClientSecret
-			s.loadToken()
+			go s.loadToken()
 		}
 
 		var gcfg struct {
@@ -110,6 +111,7 @@ func (s *Slack) AttachToApp(app core.App) error {
 		app.GlobalConfig(&gcfg)
 		if gcfg.Hostname == "" {
 			printWarning("Global configuration for app `%s` does not have a hostname specified", app.Name())
+			return nil
 		} else {
 			s.hostname = gcfg.Hostname
 		}
@@ -206,12 +208,7 @@ func (s *Slack) getBaseMessageParams(app core.App, build core.Build, succeeded b
 		suffix = "*failed*"
 	}
 
-	// FIXME: We don't have a way to get the build config of the build, so making
-	// a fake one until we do
-	cfg := core.BuildConfig{
-		Title: "#24: Bootstrap the repo",
-		URL:   "https://github.com/ngbuild/pull/24",
-	}
+	cfg := build.Config()
 
 	params := slack.PostMessageParameters{
 		Attachments: []slack.Attachment{
@@ -349,6 +346,9 @@ func (s *Slack) buildForToken(token string) (core.App, core.Build) {
 }
 
 func (s *Slack) loadToken() {
+	s.m.Lock()
+	defer s.m.Unlock()
+
 	// Try and load an existing token, otherwise print out instructions
 	// for the user to log-in the app
 	cfg := tokenCache{}
@@ -383,7 +383,7 @@ func (s *Slack) getOAuth2Config() *oauth2.Config {
 		ClientID:     s.clientID,
 		ClientSecret: s.clientSecret,
 		Endpoint:     oslack.Endpoint,
-		RedirectURL:  fmt.Sprintf("%s/cb/auth/slack", strings.Replace(core.GetHTTPServerURL(), "http://", "https://",1)),
+		RedirectURL:  fmt.Sprintf("%s/cb/auth/slack", strings.Replace(core.GetHTTPServerURL(), "http://", "https://", 1)),
 		Scopes:       oauth2Scopes,
 	}
 }
