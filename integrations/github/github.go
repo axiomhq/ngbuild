@@ -362,8 +362,7 @@ func (g *Github) buildPullRequest(app *githubApp, pull *github.PullRequest) {
 
 	buildConfig := core.NewBuildConfig()
 	buildConfig.Title = *pull.Title
-	buildConfig.URL = *pull.URL
-
+	buildConfig.URL = *pull.HTMLURL
 	buildConfig.HeadRepo = headCloneURL
 	buildConfig.HeadBranch = headBranch
 	buildConfig.HeadHash = headCommit

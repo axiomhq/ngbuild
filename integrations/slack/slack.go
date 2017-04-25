@@ -201,31 +201,27 @@ func (s *Slack) PostBuildMessage(app core.App, build core.Build, succeeded bool)
 
 func (s *Slack) getBaseMessageParams(app core.App, build core.Build, succeeded bool) *slack.PostMessageParameters {
 	color := colorSucceeded
-	suffix := "*passed*"
+	suffix := "passed"
 
 	if !succeeded {
 		color = colorFailed
-		suffix = "*failed*"
+		suffix = "failed"
 	}
 
 	cfg := build.Config()
+	pull := cfg.GetMetadata("github:PullNumber")
 
 	params := slack.PostMessageParameters{
 		Attachments: []slack.Attachment{
 			slack.Attachment{
+				AuthorName: app.Name(),
 				Color:      color,
 				CallbackID: build.Token(),
-				Fallback:   fmt.Sprintf("%s: %s - %s", app.Name(), cfg.Title, suffix),
-				Title:      fmt.Sprintf("%s: %s", app.Name(), cfg.Title),
+				Fallback:   fmt.Sprintf("#%s - %s: %s", pull, cfg.Title, suffix),
+				Title:      fmt.Sprintf("#%s - %s", pull, cfg.Title),
 				TitleLink:  cfg.URL,
-				Fields: []slack.AttachmentField{
-					slack.AttachmentField{
-						Title: "Time Taken",
-						Value: fmt.Sprintf("%dm:%ds", int64(build.BuildTime().Minutes()), int64(build.BuildTime().Seconds())%60),
-						Short: true,
-					},
-				},
-				MarkdownIn: []string{"title"},
+				Text:       fmt.Sprintf("Build time: %dm%ds\n<%s|View build>", int64(build.BuildTime().Minutes()), int64(build.BuildTime().Seconds())%60, fmt.Sprintf("https://%s/web/%s/%s", s.hostname, app.Name(), build.Token())),
+				MarkdownIn: []string{"title", "text"},
 			},
 		},
 	}
@@ -357,7 +353,7 @@ func (s *Slack) loadToken() {
 	if cfg.Token == "" {
 		s.printAuthHelp()
 	} else {
-		s.setClient(cfg.Token)
+		s.client = slack.New(cfg.Token)
 	}
 }
 
