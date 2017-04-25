@@ -76,7 +76,7 @@ type (
 	// BuildConfig describes a build, heavily in favour of github/git at the moment
 	//
 	BuildConfig struct {
-		m        sync.RWMutex
+		m        *sync.RWMutex
 		metadata map[string]string
 
 		// Required block
@@ -166,6 +166,13 @@ type (
 )
 
 var integrations = []Integration{}
+
+// NewBuildConfig ...
+func NewBuildConfig() *BuildConfig {
+	return &BuildConfig{
+		m: &sync.RWMutex{},
+	}
+}
 
 // RegisterIntegration will register your integration with core
 func RegisterIntegration(integration Integration) {

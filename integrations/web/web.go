@@ -1,15 +1,18 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,15 +49,18 @@ var (
 )
 
 func (w *Web) routeHTTP(resp http.ResponseWriter, req *http.Request) {
+	path := req.URL.Path
 	switch {
-	case req.URL.Path == "/web":
+	case path == "/web":
 		w.status(resp, req)
-	case req.URL.Path == "/web/status":
+	case path == "/web/status":
 		w.status(resp, req)
-	case reBuildStatus.MatchString(req.URL.Path):
+	case strings.HasSuffix(path, ".json") && reBuildStatus.MatchString(strings.TrimSuffix(path, ".json")):
+		w.asciinemaFormat(resp, req)
+	case reBuildStatus.MatchString(path):
 		w.buildStatus(resp, req)
 	default:
-		fmt.Println("no match: ", req.URL.Path)
+		fmt.Println("no match: ", path)
 		resp.WriteHeader(404)
 	}
 
@@ -131,6 +137,38 @@ func (w *Web) rebuild(resp http.ResponseWriter, req *http.Request) {
 
 }
 
+func (w *Web) asciinemaFormat(resp http.ResponseWriter, req *http.Request) {
+	w.m.RLock()
+	defer w.m.RUnlock()
+
+	data, err := core.RegexpNamedGroupsMatch(reBuildStatus, req.URL.Path)
+	if err != nil {
+		return
+	}
+
+	appName := data["appname"]
+	buildToken := data["buildtoken"]
+
+	app := w.apps[appName]
+	if app == nil {
+		resp.WriteHeader(404)
+		return
+	}
+	cacheDir := w.cacheDir(appName, buildToken)
+
+	jsonData, err := ioutil.ReadFile(filepath.Join(cacheDir, "asciinema.json"))
+	if err != nil {
+		resp.WriteHeader(500)
+		logcritf("Error reading %s: %s", filepath.Join(cacheDir, "asciinema.json"), err)
+		return
+	}
+
+	_, err = resp.Write(jsonData)
+	if err != nil {
+		logwarnf("Couldn't write all to resp: %s", err)
+	}
+}
+
 func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	w.m.RLock()
 	defer w.m.RUnlock()
@@ -200,52 +238,183 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 
 	output := `<html><head>
 	<title>NGBuild build output</title>
+	<link rel="stylesheet" type="text/css" href="http://axiom.sh/axiom.css" />
+	<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/ngbuild/asciinema-player.css" />
 	<link rel="stylesheet" type="text/css" href="//fonts.googleapis.com/css?family=Ubuntu" />
 	<style>
-		h1 {
-			font-family: Ubuntu;
-			font-size: 23px;
-			font-style: normal;
-			font-variant: normal;
-			font-weight: 400;
-			line-height: 23px;
-		}
-		h3 {
-			font-family: Ubuntu;
-			font-size: 17px;
-			font-style: normal;
-			font-variant: normal;
-			font-weight: 400;
-			line-height: 23px;
-		}
-		p {
-			font-family: Ubuntu;
-			font-size: 14px;
-			font-style: normal;
-			font-variant: normal;
-			font-weight: 400;
-			line-height: 23px;
-		}
-		blockquote {
-			font-family: Ubuntu;
-			font-size: 17px;
-			font-style: normal;
-			font-variant: normal;
-			font-weight: 400;
-			line-height: 23px;
-		}
-		pre {
-			font-family: Ubuntu;
-			font-size: 11px;
-			font-style: normal;
-			font-variant: normal;
-			font-weight: 400;
-			line-height: 15.7143px;
-			background: #2d2d2d;
-			color: #cccccc;
-			padding: 0.5em;
-			width: 80%;
-		}	
+	.asciinema-theme-axiom .asciinema-terminal {
+	  color: #6EDB77;                    /* default text color */
+	  background-color: #202224;
+	  text-shadow: 0 0 3px #6EDB76;
+	  font-family: "Ubuntu Mono";
+	  font-size: 14px;
+	  font-weight: 300;
+	  border-color: #272822;
+	  border-width: 0px;
+	}
+	.asciinema-player-wrapper {
+		text-align: left !important;
+	}
+	.asciinema-theme-axiom .fg-bg {    /* inverse for default text color */
+	  color: #2d2d2d;
+	}
+	.asciinema-theme-axiom .bg-fg {    /* inverse for terminal background color */
+		background-color: #6EDB77;
+		box-shadow: 0px 0px 3px #6EDB77;
+		margin-left: 2px !important;
+		margin-right: 2px !important;
+	}
+
+	.asciinema-theme-axiom .fg-0 {
+		color: #2d2d2d;
+	}
+	.asciinema-theme-axiom .bg-0 {
+	  	background-color: #2d2d2d;
+	}
+	.asciinema-theme-axiom .fg-1 {
+		color: #393939;
+	}
+	.asciinema-theme-axiom .bg-1 {
+		background-color: #393939;
+	}
+	.asciinema-theme-axiom .fg-2 {
+		color: #515151;
+	}
+	.asciinema-theme-axiom .bg-2 {
+		background-color: #515151;
+	}
+	.asciinema-theme-axiom .fg-3 {
+		color: #747369;
+	}
+	.asciinema-theme-axiom .bg-3 {
+		background-color: #747369;
+	}
+	.asciinema-theme-axiom .fg-4 {
+		color: #a09f93;
+	}
+	.asciinema-theme-axiom .bg-4 {
+		background-color: #a09f93;
+	}
+	.asciinema-theme-axiom .fg-5 {
+		color: #d3d0c8;
+	}
+	.asciinema-theme-axiom .bg-5 {
+		background-color: #d3d0c8;
+	}
+	.asciinema-theme-axiom .fg-6 {
+		color: #e8e6df;
+	}
+	.asciinema-theme-axiom .bg-6 {
+		background-color: #e8e6df;
+	}
+	.asciinema-theme-axiom .fg-7 {
+		color: #f2f0ec;
+	}
+	.asciinema-theme-axiom .bg-7 {
+		background-color: #f2f0ec;
+	}
+	.asciinema-theme-axiom .fg-8 {
+		color: #f2777a;
+	}
+	.asciinema-theme-axiom .bg-8 {
+		background-color: #f2777a;
+	}
+	.asciinema-theme-axiom .fg-9 {
+		color: #f99157;
+	}
+	.asciinema-theme-axiom .bg-9 {
+		background-color: #f99157;
+	}
+	.asciinema-theme-axiom .fg-10 {
+		color: #ffcc66;
+	}
+	.asciinema-theme-axiom .bg-10 {
+		background-color: #ffcc66;
+	}
+	.asciinema-theme-axiom .fg-11 {
+		color: #99cc99;
+	}
+	.asciinema-theme-axiom .bg-11 {
+		background-color: #99cc99;
+	}
+	.asciinema-theme-axiom .fg-12 {
+		color: #66cccc;
+	}
+	.asciinema-theme-axiom .bg-12 {
+		background-color: #66cccc;
+	}
+	.asciinema-theme-axiom .fg-13 {
+		color: #6699cc;
+	}
+	.asciinema-theme-axiom .bg-13 {
+		background-color: #6699cc;
+	}
+	.asciinema-theme-axiom .fg-14 {
+		color: #cc99cc;
+	}
+	.asciinema-theme-axiom .bg-14 {
+		background-color: #cc99cc;
+	}
+	.asciinema-theme-axiom .fg-15 {
+		color: #d27b53;
+	}
+	.asciinema-theme-axiom .bg-15 {
+		background-color: #d27b53;
+	}
+	.asciinema-theme-axiom .fg-8,
+	.asciinema-theme-axiom .fg-9,
+	.asciinema-theme-axiom .fg-10,
+	.asciinema-theme-axiom .fg-11,
+	.asciinema-theme-axiom .fg-12,
+	.asciinema-theme-axiom .fg-13,
+	.asciinema-theme-axiom .fg-14,
+	.asciinema-theme-axiom .fg-15 {
+		font-weight: bold;
+	}
+	h1 {
+		font-family: Ubuntu;
+		font-size: 23px;
+		font-style: normal;
+		font-variant: normal;
+		font-weight: 400;
+		line-height: 23px;
+	}
+	h3 {
+		font-family: Ubuntu;
+		font-size: 17px;
+		font-style: normal;
+		font-variant: normal;
+		font-weight: 400;
+		line-height: 23px;
+	}
+	p {
+		font-family: Ubuntu;
+		font-size: 14px;
+		font-style: normal;
+		font-variant: normal;
+		font-weight: 400;
+		line-height: 23px;
+	}
+	blockquote {
+		font-family: Ubuntu;
+		font-size: 17px;
+		font-style: normal;
+		font-variant: normal;
+		font-weight: 400;
+		line-height: 23px;
+	}
+	pre {
+		font-family: Ubuntu;
+		font-size: 11px;
+		font-style: normal;
+		font-variant: normal;
+		font-weight: 400;
+		line-height: 15.7143px;
+		background: #2d2d2d;
+		color: #cccccc;
+		padding: 0.5em;
+		width: 100%;
+	}	
 	</style>
 	<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.7.0/styles/tomorrow-night-eighties.min.css">
 	<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.7.0/highlight.min.js"></script>
@@ -254,8 +423,11 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 
 	output += `<h1>`
 	output += fmt.Sprintf(`<a href="%s">%s</a>`, config.URL, config.Title)
-	output += fmt.Sprintf(`<small> [<a href="%s">rebuild</a>]</small>`, baseURL+"/rebuild")
+	output += fmt.Sprintf(`<small> [<a href="%s/rebuild">rebuild</a>]</small>`, baseURL)
 	output += `</h1>`
+
+	output += "<H3>Replay:</H3>"
+	output += fmt.Sprintf(`<asciinema-player src="%s.json" theme="axiom" autoplay="yes please" loop="yes please" speed=1></asciinema-player>`, baseURL)
 
 	output += "<h3>Stdout:</h3>"
 	output += `<pre><code class="nohighlight">`
@@ -273,8 +445,112 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	output += `</code></pre>`
 
 	output += "\nNeil didn't make this look nicer yet"
-	output += `</body></html>`
+	output += `<script src="https://storage.googleapis.com/ngbuild/asciinema-player.js"></script></body></html>`
 	resp.Write([]byte(output))
+}
+
+type asciinema struct {
+	Version  int             `json:"version"`
+	Width    int             `json:"width"`
+	Height   int             `json:"height"`
+	Duration float64         `json:"duration"`
+	Title    string          `json:"title"`
+	Stdout   [][]interface{} `json:"stdout"`
+}
+
+func writeAsciinemaTo(path, title, buildRunner string, stdout io.Reader, stderr io.Reader) {
+	currentAsciinema := asciinema{
+		Version: 1,
+		Width:   120,
+		Height:  30,
+		Title:   title,
+	}
+
+	// first of all we want to pre-fill our stdout with some faked data to say ./build.sh
+	currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
+		0.0,
+		fmt.Sprintf("[%s]ngbuild@watchmen $ ", time.Now().UTC().Format("15:04:05")),
+	})
+
+	typingTime := 1.0
+	buildRunner = "./" + buildRunner
+	for i := range buildRunner {
+		text := string(buildRunner[i])
+		if i == len(buildRunner)-1 {
+			text += "\n"
+		}
+
+		currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
+			typingTime,
+			string(text),
+		})
+		typingTime = (rand.Float64() * 0.1) + 0.1
+
+	}
+
+	startTime := time.Now().UTC().Add(-time.Duration(typingTime * float64(time.Second)))
+
+	readAll := func(data chan<- []byte, reader io.Reader) {
+		basebuf := [1024]byte{}
+		for {
+			n, err := reader.Read(basebuf[:])
+			if n < 1 || err != nil {
+				break
+			}
+			data <- basebuf[:n]
+		}
+		close(data)
+	}
+
+	stdoutC := make(chan []byte, 1)
+	stderrC := make(chan []byte, 1)
+
+	go readAll(stdoutC, stdout)
+	go readAll(stderrC, stderr)
+
+	stderrClosed := false
+	stdoutClosed := false
+
+	for stderrClosed == false && stdoutClosed == false {
+		select {
+		case data, ok := <-stdoutC:
+			if ok == false {
+				stdoutClosed = true
+			} else {
+				currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
+					time.Now().UTC().Sub(startTime).Seconds(),
+					string(data),
+				})
+			}
+		case data, ok := <-stderrC:
+			if ok == false {
+				stderrClosed = true
+			} else {
+				currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
+					time.Now().UTC().Sub(startTime).Seconds(),
+					string(data),
+				})
+			}
+		}
+		currentAsciinema.Duration = time.Now().UTC().Sub(startTime).Seconds()
+
+		// work around a bug in the current player, add an extra line before writing, then remove it
+		currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
+			time.Now().UTC().Sub(startTime).Seconds(),
+			string("if you can read this, tell gord to remove the workaround in ngbuild"),
+		})
+		data, err := json.MarshalIndent(currentAsciinema, "", "  ")
+		currentAsciinema.Stdout = currentAsciinema.Stdout[:len(currentAsciinema.Stdout)-1]
+		if err != nil {
+			logcritf("Could not write data to asciinema format: %s", err)
+			continue
+		}
+
+		err = ioutil.WriteFile(path, data, 0666)
+		if err != nil {
+			logcritf("Could not write data to %s: %s", path, err)
+		}
+	}
 }
 
 func writeAll(writer io.Writer, buf []byte) error {
@@ -288,6 +564,7 @@ func writeAll(writer io.Writer, buf []byte) error {
 
 	return nil
 }
+
 func writeTo(path string, reader io.Reader) {
 	file, err := os.Create(path)
 	file.Close()
@@ -323,6 +600,7 @@ func (w *Web) startMonitorBuild(data map[string]string) {
 
 	appName := data["app"]
 	token := data["token"]
+
 	app := w.apps[appName]
 	if app == nil {
 		logcritf("no app for %s", appName)
@@ -361,6 +639,20 @@ func (w *Web) startMonitorBuild(data map[string]string) {
 
 	go writeTo(filepath.Join(cacheDir, "stdout.log"), stdout)
 	go writeTo(filepath.Join(cacheDir, "stderr.log"), stderr)
+
+	// get new stdout/errs for asciinema
+	stdout, err = build.Stdout()
+	if err != nil {
+		logcritf("Couldn't get build stdout: %s", err)
+		return
+	}
+
+	stderr, err = build.Stderr()
+	if err != nil {
+		logcritf("Couldn't get build stderr: %s", err)
+		return
+	}
+	go writeAsciinemaTo(filepath.Join(cacheDir, "asciinema.json"), fmt.Sprintf("%s::%s", appName, token), build.Config().BuildRunner, stdout, stderr)
 
 	w.stats["tracked builds total"]++
 	w.stats[fmt.Sprintf("(%s)current tracked builds", appName)] = len(w.builds)
@@ -425,18 +717,18 @@ func (w *Web) Shutdown() {}
 
 func loginfof(str string, args ...interface{}) (ret string) {
 	ret = fmt.Sprintf("web-info: "+str+"\n", args...)
-	fmt.Printf(ret)
+	fmt.Println(ret)
 	return ret
 }
 
 func logwarnf(str string, args ...interface{}) (ret string) {
 	ret = fmt.Sprintf("web-warn: "+str+"\n", args...)
-	fmt.Printf(ret)
+	fmt.Println(ret)
 	return ret
 }
 
 func logcritf(str string, args ...interface{}) (ret string) {
 	ret = fmt.Sprintf("web-crit: "+str+"\n", args...)
-	fmt.Printf(ret)
+	fmt.Println(ret)
 	return ret
 }
