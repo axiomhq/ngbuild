@@ -242,6 +242,105 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/ngbuild/asciinema-player.css" />
 	<link rel="stylesheet" type="text/css" href="//fonts.googleapis.com/css?family=Ubuntu" />
 	<style>
+	@keyframes flicker {
+	  0% {
+		opacity: 0.53796;
+	  }
+	  5% {
+		opacity: 0.13547;
+	  }
+	  10% {
+		opacity: 0.63579;
+	  }
+	  15% {
+		opacity: 0.24247;
+	  }
+	  20% {
+		opacity: 0.99758;
+	  }
+	  25% {
+		opacity: 0.73973;
+	  }
+	  30% {
+		opacity: 0.87653;
+	  }
+	  35% {
+		opacity: 0.2604;
+	  }
+	  40% {
+		opacity: 0.10599;
+	  }
+	  45% {
+		opacity: 0.92037;
+	  }
+	  50% {
+		opacity: 0.52826;
+	  }
+	  55% {
+		opacity: 0.5802;
+	  }
+	  60% {
+		opacity: 0.171;
+	  }
+	  65% {
+		opacity: 0.39806;
+	  }
+	  70% {
+		opacity: 0.27816;
+	  }
+	  75% {
+		opacity: 0.33932;
+	  }
+	  80% {
+		opacity: 0.79819;
+	  }
+	  85% {
+		opacity: 0.74343;
+	  }
+	  90% {
+		opacity: 0.8599;
+	  }
+	  95% {
+		opacity: 0.03005;
+	  }
+	  100% {
+		opacity: 0.50583;
+	  }
+	}
+	.crt {
+		position: relative;
+		display: inline-block;
+		overflow: hidden;
+		border: 1px solid #393938
+	}
+	.crt::after {
+	  animation: flicker 0.15s infinite;
+	  content: " ";
+	  display: block;
+	  position: absolute;
+	  top: 0;
+	  left: 0;
+	  bottom: 0;
+	  right: 0;
+	  background: rgba(18, 16, 16, 0.1);
+	  opacity: 0;
+	  z-index: 2;
+	  pointer-events: none;
+	}
+	.crt::before {
+	  content: " ";
+	  display: block;
+	  position: absolute;
+	  top: 0;
+	  left: 0;
+	  bottom: 0;
+	  right: 0;
+	  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+	  z-index: 2;
+	  background-size: 100% 2px, 3px 100%;
+	  pointer-events: none;
+	}
+
 	.asciinema-theme-axiom .asciinema-terminal {
 	  color: #6EDB77;                    /* default text color */
 	  background-color: #202224;
@@ -427,7 +526,7 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	output += `</h1>`
 
 	output += "<H3>Replay:</H3>"
-	output += fmt.Sprintf(`<asciinema-player src="%s.json" theme="axiom" autoplay="yes please" speed=1></asciinema-player>`, baseURL)
+	output += fmt.Sprintf(`<div class="crt"><asciinema-player src="%s.json" theme="axiom" autoplay="yes please" speed=1></asciinema-player></div>`, baseURL)
 
 	output += "<h3>Stdout:</h3>"
 	output += `<pre><code class="nohighlight">`
