@@ -142,22 +142,21 @@ func (g *Github) handleGithubPush(app *githubApp, body []byte) {
 	}
 
 	// if we get here, we should build this commit, fo sho
-	buildConfig := core.BuildConfig{
-		Title:      fmt.Sprintf("%s(%s):%s branch build", repoName, branch, commitHash),
-		URL:        *event.Compare,
-		BaseRepo:   *event.Repo.SSHURL,
-		BaseBranch: branch,
-		BaseHash:   commitHash,
+	buildConfig := core.NewBuildConfig()
+	buildConfig.Title = fmt.Sprintf("%s(%s):%s branch build", repoName, branch, commitHash)
+	buildConfig.URL = *event.Compare
+	buildConfig.BaseRepo = *event.Repo.SSHURL
+	buildConfig.BaseBranch = branch
+	buildConfig.BaseHash = commitHash
+	buildConfig.Group = branch
 
-		Group: branch,
-	}
 	buildConfig.SetMetadata("github:BuildType", "commit")
 	buildConfig.SetMetadata("github:BranchBuild", branch)
 	buildConfig.SetMetadata("github:BranchBuildRepo", repoName)
 	buildConfig.SetMetadata("github:BranchBuildOwner", owner)
 	buildConfig.SetMetadata("github:BranchBuildCommit", commitHash)
 
-	_, err := app.app.NewBuild(buildConfig.Group, &buildConfig)
+	_, err := app.app.NewBuild(buildConfig.Group, buildConfig)
 	if err != nil {
 		logcritf("Couldn't start build for %s(%s):%s", repoName, branch, commitHash)
 		return

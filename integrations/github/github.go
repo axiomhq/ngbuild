@@ -360,20 +360,19 @@ func (g *Github) buildPullRequest(app *githubApp, pull *github.PullRequest) {
 	baseRepo := *pull.Base.Repo.Name
 	baseCommit := *pull.Base.SHA
 
-	buildConfig := core.BuildConfig{
-		Title: *pull.Title,
-		URL:   *pull.URL,
+	buildConfig := core.NewBuildConfig()
+	buildConfig.Title = *pull.Title
+	buildConfig.URL = *pull.URL
 
-		HeadRepo:   headCloneURL,
-		HeadBranch: headBranch,
-		HeadHash:   headCommit,
+	buildConfig.HeadRepo = headCloneURL
+	buildConfig.HeadBranch = headBranch
+	buildConfig.HeadHash = headCommit
 
-		BaseRepo:   baseCloneURL,
-		BaseBranch: baseBranch,
-		BaseHash:   "",
+	buildConfig.BaseRepo = baseCloneURL
+	buildConfig.BaseBranch = baseBranch
+	buildConfig.BaseHash = ""
 
-		Group: pullID,
-	}
+	buildConfig.Group = pullID
 
 	buildConfig.SetMetadata("github:BuildType", "pullrequest")
 	buildConfig.SetMetadata("github:PullRequestID", pullID)
@@ -385,7 +384,7 @@ func (g *Github) buildPullRequest(app *githubApp, pull *github.PullRequest) {
 	buildConfig.SetMetadata("github:BaseOwner", baseOwner)
 	buildConfig.SetMetadata("github:BaseRepo", baseRepo)
 
-	buildToken, err := app.app.NewBuild(buildConfig.Group, &buildConfig)
+	buildToken, err := app.app.NewBuild(buildConfig.Group, buildConfig)
 	if err != nil {
 		logcritf("Couldn't start build for %d", *pull.ID)
 		return

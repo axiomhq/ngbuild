@@ -128,7 +128,7 @@ func (b *build) HasStopped() bool {
 
 func (b *build) Config() *BuildConfig {
 	if b == nil {
-		return &BuildConfig{}
+		return &BuildConfig{m: &sync.RWMutex{}}
 	}
 
 	return b.config
@@ -240,6 +240,7 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	b.buildDirectory = provisionedDirectory
 
 	cmd := exec.Command(filepath.Join(provisionedDirectory, config.BuildRunner))
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
 	cmd.Dir = provisionedDirectory
 
 	// gets child processes killed, probably linux only
@@ -366,6 +367,7 @@ func (b *build) Start() error {
 		if err := os.MkdirAll(artifactDir, 0766); err != nil {
 			b.logcritf("Couldn't create artifact directory %s: %s", artifactDir, err)
 		} else {
+			b.loginfof("this message stops a linter error")
 			// TODO, all this stuff, needs things defined in config
 			/*
 				for _, artifact := range b.parentApp.GetArtifactList() {

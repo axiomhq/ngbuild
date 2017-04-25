@@ -13,7 +13,7 @@ type testregexpmatch struct {
 	result  map[string]string
 }
 
-func TestregexpmatchNamedGroupsMatch(t *testing.T) {
+func TestRegexpmatchNamedGroupsMatch(t *testing.T) {
 	testData := []testregexpmatch{
 		testregexpmatch{
 			pattern: regexp.MustCompile(`(?P<1>\d)(?P<2>\d)`),
