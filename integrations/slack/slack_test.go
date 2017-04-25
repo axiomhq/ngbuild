@@ -33,7 +33,7 @@ func TestMain(m *testing.M) {
 	silent = true
 
 	os.Exit(m.Run())
-}
+
 
 func TestBasics(t *testing.T) {
 	assert := assert.New(t)
