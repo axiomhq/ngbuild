@@ -371,94 +371,94 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	  	background-color: #2d2d2d;
 	}
 	.asciinema-theme-axiom .fg-1 {
-		color: #393939;
-	}
-	.asciinema-theme-axiom .bg-1 {
-		background-color: #393939;
-	}
-	.asciinema-theme-axiom .fg-2 {
-		color: #515151;
-	}
-	.asciinema-theme-axiom .bg-2 {
-		background-color: #515151;
-	}
-	.asciinema-theme-axiom .fg-3 {
-		color: #747369;
-	}
-	.asciinema-theme-axiom .bg-3 {
-		background-color: #747369;
-	}
-	.asciinema-theme-axiom .fg-4 {
-		color: #a09f93;
-	}
-	.asciinema-theme-axiom .bg-4 {
-		background-color: #a09f93;
-	}
-	.asciinema-theme-axiom .fg-5 {
-		color: #d3d0c8;
-	}
-	.asciinema-theme-axiom .bg-5 {
-		background-color: #d3d0c8;
-	}
-	.asciinema-theme-axiom .fg-6 {
-		color: #e8e6df;
-	}
-	.asciinema-theme-axiom .bg-6 {
-		background-color: #e8e6df;
-	}
-	.asciinema-theme-axiom .fg-7 {
-		color: #f2f0ec;
-	}
-	.asciinema-theme-axiom .bg-7 {
-		background-color: #f2f0ec;
-	}
-	.asciinema-theme-axiom .fg-8 {
 		color: #f2777a;
 	}
-	.asciinema-theme-axiom .bg-8 {
+	.asciinema-theme-axiom .bg-1 {
 		background-color: #f2777a;
 	}
-	.asciinema-theme-axiom .fg-9 {
-		color: #f99157;
-	}
-	.asciinema-theme-axiom .bg-9 {
-		background-color: #f99157;
-	}
-	.asciinema-theme-axiom .fg-10 {
-		color: #ffcc66;
-	}
-	.asciinema-theme-axiom .bg-10 {
-		background-color: #ffcc66;
-	}
-	.asciinema-theme-axiom .fg-11 {
+	.asciinema-theme-axiom .fg-2 {
 		color: #99cc99;
 	}
-	.asciinema-theme-axiom .bg-11 {
+	.asciinema-theme-axiom .bg-2 {
 		background-color: #99cc99;
 	}
-	.asciinema-theme-axiom .fg-12 {
-		color: #66cccc;
+	.asciinema-theme-axiom .fg-3 {
+		color: #ffcc66;
 	}
-	.asciinema-theme-axiom .bg-12 {
-		background-color: #66cccc;
+	.asciinema-theme-axiom .bg-3 {
+		background-color: #ffcc66;
 	}
-	.asciinema-theme-axiom .fg-13 {
+	.asciinema-theme-axiom .fg-4 {
 		color: #6699cc;
 	}
-	.asciinema-theme-axiom .bg-13 {
+	.asciinema-theme-axiom .bg-4 {
 		background-color: #6699cc;
 	}
-	.asciinema-theme-axiom .fg-14 {
+	.asciinema-theme-axiom .fg-5 {
 		color: #cc99cc;
 	}
-	.asciinema-theme-axiom .bg-14 {
+	.asciinema-theme-axiom .bg-5 {
 		background-color: #cc99cc;
 	}
+	.asciinema-theme-axiom .fg-6 {
+		color: #66cccc;
+	}
+	.asciinema-theme-axiom .bg-6 {
+		background-color: #66cccc;
+	}
+	.asciinema-theme-axiom .fg-7 {
+		color: #d3d0c8;
+	}
+	.asciinema-theme-axiom .bg-7 {
+		background-color: #d3d0c8;
+	}
+	.asciinema-theme-axiom .fg-8 {
+		color: #747369;
+	}
+	.asciinema-theme-axiom .bg-8 {
+		background-color: #747369;
+	}
+	.asciinema-theme-axiom .fg-9 {
+		color: #f2777a;
+	}
+	.asciinema-theme-axiom .bg-9 {
+		background-color: #f2777a;
+	}
+	.asciinema-theme-axiom .fg-10 {
+		color: #99cc99;
+	}
+	.asciinema-theme-axiom .bg-10 {
+		background-color: #99cc99;
+	}
+	.asciinema-theme-axiom .fg-11 {
+		color: #ffcc66;
+	}
+	.asciinema-theme-axiom .bg-11 {
+		background-color: #ffcc66;
+	}
+	.asciinema-theme-axiom .fg-12 {
+		color: #6699cc;
+	}
+	.asciinema-theme-axiom .bg-12 {
+		background-color: #6699cc;
+	}
+	.asciinema-theme-axiom .fg-13 {
+		color: #cc99cc;
+	}
+	.asciinema-theme-axiom .bg-13 {
+		background-color: #cc99cc;
+	}
+	.asciinema-theme-axiom .fg-14 {
+		color: #66cccc;
+	}
+	.asciinema-theme-axiom .bg-14 {
+		background-color: #66cccc;
+	}
 	.asciinema-theme-axiom .fg-15 {
-		color: #d27b53;
+		color: #f2f0ec;
 	}
 	.asciinema-theme-axiom .bg-15 {
-		background-color: #d27b53;
+		background-color: #f2f0ec;
 	}
 	.asciinema-theme-axiom .fg-8,
 	.asciinema-theme-axiom .fg-9,
