@@ -427,7 +427,7 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	output += `</h1>`
 
 	output += "<H3>Replay:</H3>"
-	output += fmt.Sprintf(`<asciinema-player src="%s.json" theme="axiom" autoplay="yes please" loop="yes please" speed=1></asciinema-player>`, baseURL)
+	output += fmt.Sprintf(`<asciinema-player src="%s.json" theme="axiom" autoplay="yes please" speed=1></asciinema-player>`, baseURL)
 
 	output += "<h3>Stdout:</h3>"
 	output += `<pre><code class="nohighlight">`
@@ -472,7 +472,6 @@ func writeAsciinemaTo(path, title, buildRunner string, stdout io.Reader, stderr 
 		fmt.Sprintf("[%s]ngbuild@watchmen $ ", time.Now().UTC().Format("15:04:05")),
 	})
 
-	typingTime := 1.0
 	buildRunner = "./" + buildRunner
 	for i := range buildRunner {
 		text := string(buildRunner[i])
@@ -481,14 +480,12 @@ func writeAsciinemaTo(path, title, buildRunner string, stdout io.Reader, stderr 
 		}
 
 		currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
-			typingTime,
+			(rand.Float64() * 0.1) + 0.1,
 			string(text),
 		})
-		typingTime = (rand.Float64() * 0.1) + 0.1
-
 	}
 
-	startTime := time.Now().UTC().Add(-time.Duration(typingTime * float64(time.Second)))
+	startTime := time.Now().UTC()
 
 	readAll := func(data chan<- []byte, reader io.Reader) {
 		basebuf := [1024]byte{}
@@ -511,6 +508,7 @@ func writeAsciinemaTo(path, title, buildRunner string, stdout io.Reader, stderr 
 	stderrClosed := false
 	stdoutClosed := false
 
+	lastOutputTime := time.Now().UTC()
 	for stderrClosed == false && stdoutClosed == false {
 		select {
 		case data, ok := <-stdoutC:
@@ -518,26 +516,30 @@ func writeAsciinemaTo(path, title, buildRunner string, stdout io.Reader, stderr 
 				stdoutClosed = true
 			} else {
 				currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
-					time.Now().UTC().Sub(startTime).Seconds(),
+					time.Now().UTC().Sub(lastOutputTime).Seconds(),
 					string(data),
 				})
+				lastOutputTime = time.Now().UTC()
 			}
 		case data, ok := <-stderrC:
 			if ok == false {
 				stderrClosed = true
 			} else {
 				currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
-					time.Now().UTC().Sub(startTime).Seconds(),
+					time.Now().UTC().Sub(lastOutputTime).Seconds(),
 					string(data),
 				})
+				lastOutputTime = time.Now().UTC()
 			}
 		}
-		currentAsciinema.Duration = time.Now().UTC().Sub(startTime).Seconds()
+		currentAsciinema.Duration = time.Now().UTC().
+			Add(time.Second * 15).
+			Sub(startTime).Seconds()
 
 		// work around a bug in the current player, add an extra line before writing, then remove it
 		currentAsciinema.Stdout = append(currentAsciinema.Stdout, []interface{}{
-			time.Now().UTC().Sub(startTime).Seconds(),
-			string("if you can read this, tell gord to remove the workaround in ngbuild"),
+			(time.Now().UTC().Sub(lastOutputTime) + (time.Second * 2)).Seconds(),
+			string("[33m[end of message...]"),
 		})
 		data, err := json.MarshalIndent(currentAsciinema, "", "  ")
 		currentAsciinema.Stdout = currentAsciinema.Stdout[:len(currentAsciinema.Stdout)-1]
