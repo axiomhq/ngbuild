@@ -49,7 +49,7 @@ type (
 	}
 
 	messageParams struct {
-		Attachments []slack.Attachment `mapstructure:"attachments"`
+		Attachments []slack.Attachment `json:"attachments"`
 	}
 
 	config struct {
