@@ -311,6 +311,8 @@ runSyncLoop:
 		}
 	}
 
+	b.buildFinished(0)
+
 	b.loginfof("Build finished")
 	return nil
 
