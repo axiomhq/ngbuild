@@ -93,7 +93,7 @@ func TestSignal(t *testing.T) {
 	build := &mocks.Build{}
 
 	exitCodeCall := build.On("ExitCode")
-	build.On("Config").Return(&core.BuildConfig{})
+	build.On("Config").Return(core.NewBuildConfig())
 
 	getBuildCall.Return(build, nil)
 
@@ -122,7 +122,7 @@ func TestSignal(t *testing.T) {
 	assert.NoError(api.lastError)
 	assert.Len(api.lastAttachments, 1)
 	assert.Equal(api.lastAttachments[0].Color, colorSucceeded)
-	assert.Contains(api.lastAttachments[0].Title, "ngbuild")
+	assert.Contains(api.lastAttachments[0].AuthorName, "ngbuild")
 	assert.Len(api.lastAttachments[0].Actions, 0)
 
 	exitCodeCall.Return(1, nil)
@@ -130,7 +130,7 @@ func TestSignal(t *testing.T) {
 	assert.NoError(api.lastError)
 	assert.Len(api.lastAttachments, 1)
 	assert.Equal(api.lastAttachments[0].Color, colorFailed)
-	assert.Contains(api.lastAttachments[0].Title, "ngbuild")
+	assert.Contains(api.lastAttachments[0].AuthorName, "ngbuild")
 	assert.Len(api.lastAttachments[0].Actions, 1)
 	assert.Equal("rebuild", api.lastAttachments[0].Actions[0].Value)
 }
