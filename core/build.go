@@ -240,7 +240,7 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	b.buildDirectory = provisionedDirectory
 
 	cmd := exec.Command(filepath.Join(provisionedDirectory, config.BuildRunner))
-	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	cmd.Dir = provisionedDirectory
 
 	// gets child processes killed, probably linux only
