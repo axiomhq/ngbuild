@@ -220,7 +220,7 @@ func (s *Slack) getBaseMessageParams(app core.App, build core.Build, succeeded b
 				Fallback:   fmt.Sprintf("#%s - %s: %s", pull, cfg.Title, suffix),
 				Title:      fmt.Sprintf("#%s - %s", pull, cfg.Title),
 				TitleLink:  cfg.URL,
-				Text:       fmt.Sprintf("Build time: %dm%ds\n<%s|View build>", int64(build.BuildTime().Minutes()), int64(build.BuildTime().Seconds())%60, fmt.Sprintf("https://%s/web/%s/%s", s.hostname, app.Name(), build.Token())),
+				Text:       fmt.Sprintf("Build time: %dm%ds\n<%s|View build>", int64(build.BuildTime().Minutes()), int64(build.BuildTime().Seconds())%60, fmt.Sprintf("http://%s/web/%s/%s", s.hostname, app.Name(), build.Token())),
 				MarkdownIn: []string{"title", "text"},
 			},
 		},
