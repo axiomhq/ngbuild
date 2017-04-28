@@ -240,7 +240,7 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	<title>NGBuild build output</title>
 	<link rel="stylesheet" type="text/css" href="http://axiom.sh/axiom.css" />
 	<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/ngbuild/asciinema-player.css" />
-	<link rel="stylesheet" type="text/css" href="//fonts.googleapis.com/css?family=Ubuntu" />
+	<link rel="stylesheet" type="text/css" href="//fonts.googleapis.com/css?family=Ubuntu,Ubuntu+Mono" />
 	<style>
 	@keyframes flicker {
 	  0% {
