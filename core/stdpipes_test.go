@@ -38,10 +38,10 @@ func (m *mockReader) Close() error {
 func TestStdPipes(t *testing.T) {
 	assert := assert.New(t)
 	testMarker := []byte("::testmarker::")
-	totalJobs := 10
+	totalJobs := 32
+	dataRepeatTotal := 64
 
-	stdoutmock := &mockReader{data: make(chan []byte, 1)}
-	stderrmock := &mockReader{data: make(chan []byte, 1)}
+	stdoutmock := &mockReader{data: make(chan []byte, 0)}
 
 	stdoutmock.readFn = func(p []byte) (int, error) {
 		data, ok := <-stdoutmock.data
@@ -52,86 +52,59 @@ func TestStdPipes(t *testing.T) {
 		}
 	}
 
-	stderrmock.readFn = func(p []byte) (int, error) {
-		data, ok := <-stderrmock.data
-		if ok {
-			return copy(p, data), nil
-		} else {
-			return 0, io.EOF
-		}
-	}
-
-	piper := newStdpipes(stdoutmock, stderrmock)
+	piper := newStdpipes(stdoutmock)
 	stdoutReaders := make([]io.Reader, totalJobs)
-	stderrReaders := make([]io.Reader, totalJobs)
 
 	for i := 0; i < totalJobs; i++ {
-		stdoutReaders[i] = piper.NewStdoutReader()
-		stderrReaders[i] = piper.NewStderrReader()
+		stdoutReaders[i] = piper.NewReader()
 	}
 
 	stdoutmock.data <- testMarker
-	stderrmock.data <- testMarker
 
 	RunConcurrent(totalJobs, func(i int) {
 		stdoutReader, ok := stdoutReaders[i].(*stdreader)
 		assert.True(ok)
-		stderrReader, ok := stderrReaders[i].(*stdreader)
-		assert.True(ok)
+
 		buf := make([]byte, len(testMarker))
 		n, err := stdoutReader.Read(buf)
 		assert.EqualValues(n, len(testMarker), "1out")
 		assert.NoError(err, "1out")
 		assert.Equal(testMarker, buf, "1out")
 		assert.Equal(len(testMarker), stdoutReader.position, "1out")
-
-		buf = make([]byte, len(testMarker))
-		n, err = stderrReader.Read(buf)
-		assert.EqualValues(n, len(testMarker))
-		assert.NoError(err)
-		assert.Equal(testMarker, buf)
-		assert.Equal(len(testMarker), stderrReader.position)
-
 	})
 
 	// First set of reads passed, make sure we can read multiple times
 	position := len(testMarker)
 	testMarker = []byte("~~SecondMarker~~")
-	stdoutmock.data <- testMarker
-	stderrmock.data <- testMarker
+
+	go func() {
+		for datarepeat := 0; datarepeat < dataRepeatTotal; datarepeat++ {
+			stdoutmock.data <- testMarker
+		}
+	}()
 
 	RunConcurrent(totalJobs, func(i int) {
 		stdoutReader := stdoutReaders[i].(*stdreader)
-		stderrReader := stderrReaders[i].(*stdreader)
+		subPos := position
 		buf := make([]byte, len(testMarker))
-		n, err := stdoutReader.Read(buf)
-		assert.EqualValues(n, len(testMarker))
-		assert.NoError(err)
-		assert.Equal(testMarker, buf)
-		assert.Equal(position+len(testMarker), stdoutReader.position)
-
-		buf = make([]byte, len(testMarker))
-		n, err = stderrReader.Read(buf)
-		assert.EqualValues(n, len(testMarker))
-		assert.NoError(err)
-		assert.Equal(testMarker, buf)
-		assert.Equal(position+len(testMarker), stderrReader.position)
+		for datarepeat := 0; datarepeat < dataRepeatTotal; datarepeat++ {
+			n, err := stdoutReader.Read(buf)
+			assert.EqualValues(n, len(testMarker))
+			assert.NoError(err)
+			assert.Equal(testMarker, buf)
+			assert.Equal(subPos+len(testMarker), stdoutReader.position)
+			subPos += n
+		}
 	})
 
 	// make sure closing the pipes passes back io.EOF
 	close(stdoutmock.data)
-	close(stderrmock.data)
 
 	RunConcurrent(totalJobs, func(i int) {
 		stdoutReader := stdoutReaders[i]
-		stderrReader := stderrReaders[i]
 
 		buf := make([]byte, 1)
 		n, err := stdoutReader.Read(buf)
-		assert.Zero(n)
-		assert.EqualError(err, io.EOF.Error())
-
-		n, err = stderrReader.Read(buf)
 		assert.Zero(n)
 		assert.EqualError(err, io.EOF.Error())
 	})

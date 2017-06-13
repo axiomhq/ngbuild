@@ -19,9 +19,9 @@ var (
 func generateToken(prefix ...string) string {
 	hasher := sha256.New()
 
-	hasher.Write([]byte(salt))
-	binary.Write(hasher, binary.LittleEndian, time.Now().UTC().UnixNano())
-	binary.Write(hasher, binary.LittleEndian, atomic.AddUint64(&ctr, 1))
+	hasher.Write([]byte(salt))                                             //nolint (errcheck)
+	binary.Write(hasher, binary.LittleEndian, time.Now().UTC().UnixNano()) //nolint (errcheck)
+	binary.Write(hasher, binary.LittleEndian, atomic.AddUint64(&ctr, 1))   //nolint (errcheck)
 
 	return strings.Join(prefix, "-") + base64.URLEncoding.EncodeToString(hasher.Sum(nil))[:16]
 }

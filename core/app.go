@@ -42,7 +42,7 @@ func GetApps() []App {
 		enabledIntegrations := struct {
 			EnabledIntegrations []string `mapstructure:"enabledIntegrations"`
 		}{}
-		applyConfig(name, &enabledIntegrations)
+		applyConfig(name, &enabledIntegrations) //nolint (errcheck)
 
 		integrations := GetIntegrations()
 		// christ this code, will remove all but the 'enabledIntegrations' from our integrations list
@@ -97,7 +97,7 @@ func newApp(name, appLocation string, integrations []Integration) App {
 	}
 
 	for _, integration := range integrations {
-		integration.AttachToApp(app)
+		integration.AttachToApp(app) //nolint (errcheck)
 	}
 	return app
 }
@@ -127,7 +127,7 @@ func (a *app) Shutdown() {
 	for _, builds := range a.builds {
 		for _, build := range builds {
 			if build.HasStopped() == false {
-				build.Stop()
+				build.Stop() //nolint (errcheck)
 			}
 		}
 	}
@@ -188,7 +188,7 @@ func (a *app) NewBuild(group string, config *BuildConfig) (token string, err err
 	var appcfg struct {
 		BuildRunner string `mapstructure:"buildRunner"`
 	}
-	applyConfig(a.Name(), &appcfg)
+	applyConfig(a.Name(), &appcfg) //nolint (errcheck)
 
 	config.BuildRunner = "build.sh"
 	if appcfg.BuildRunner != "" {

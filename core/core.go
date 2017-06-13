@@ -222,9 +222,9 @@ func CacheDirectory() string {
 	cfgCache := struct {
 		CacheDirectory string `mapstructure:"cacheDirectory"`
 	}{}
-	applyConfig("", &cfgCache)
+	applyConfig("", &cfgCache) //nolint (errcheck)
 
-	os.MkdirAll(cfgCache.CacheDirectory, 0755)
+	os.MkdirAll(cfgCache.CacheDirectory, 0755) //nolint (errcheck)
 	return cfgCache.CacheDirectory
 }
 
@@ -296,7 +296,7 @@ func StartHTTPServer() chan struct{} {
 		cfg := struct {
 			HTTPListenPort string `mapstructure:"httpListenPort"`
 		}{}
-		applyConfig("", &cfg)
+		applyConfig("", &cfg) //nolint (errcheck)
 
 		loginfof("Starting http listen server on :%s", cfg.HTTPListenPort)
 		if err := http.ListenAndServe(":"+cfg.HTTPListenPort, nil); err != nil {
@@ -313,7 +313,7 @@ func GetHTTPServerURL() string {
 		HTTPListenPort string `mapstructure:"httpListenPort"`
 		Hostname       string `mapstructure:"hostname"`
 	}{}
-	applyConfig("", &cfg)
+	applyConfig("", &cfg) // nolint (errcheck)
 
 	if cfg.HTTPListenPort == "80" {
 		return fmt.Sprintf("http://%s", cfg.Hostname)
@@ -326,18 +326,18 @@ func GetHTTPServerURL() string {
 
 func loginfof(str string, args ...interface{}) (ret string) {
 	ret = fmt.Sprintf("info: "+str+"\n", args...)
-	fmt.Printf(ret)
+	fmt.Print(ret)
 	return ret
 }
 
 func logwarnf(str string, args ...interface{}) (ret string) {
 	ret = fmt.Sprintf("warn: "+str+"\n", args...)
-	fmt.Printf(ret)
+	fmt.Print(ret)
 	return ret
 }
 
 func logcritf(str string, args ...interface{}) (ret string) {
 	ret = fmt.Sprintf("crit: "+str+"\n", args...)
-	fmt.Printf(ret)
+	fmt.Print(ret)
 	return ret
 }

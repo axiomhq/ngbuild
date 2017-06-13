@@ -92,7 +92,8 @@ type build struct {
 	ref refcount
 
 	cmd            *exec.Cmd
-	stdpipes       *stdpipes
+	stdoutpipe     *stdpipes
+	stderrpipe     *stdpipes
 	buildStartTime time.Time
 	buildEndTime   time.Time
 
@@ -134,7 +135,7 @@ func (b *build) Config() *BuildConfig {
 	return b.config
 }
 
-func checkConfig(config *BuildConfig) error {
+func checkConfig(config *BuildConfig) error { //nolint (deadcode)
 	if config == nil {
 		return errors.New("config is nil")
 	}
@@ -191,11 +192,11 @@ func provisionDirectory(basedir string) (string, error) {
 		basedir = os.TempDir()
 	}
 
-	os.MkdirAll(basedir, 0766)
+	os.MkdirAll(basedir, 0766) //nolint (errcheck)
 	return ioutil.TempDir(basedir, "ngbuild-workspace-")
 }
 
-func cleanupDirectory(directory string) error {
+func cleanupDirectory(directory string) error { // nolint (deadcode)
 	return os.RemoveAll(directory)
 }
 
@@ -227,7 +228,7 @@ func (b *build) runBuildSync(config BuildConfig) error {
 	var appConfig struct {
 		BuildLocation string `mapstructure:"buildLocation"`
 	}
-	b.parentApp.GlobalConfig(&appConfig)
+	b.parentApp.GlobalConfig(&appConfig) //nolint (errcheck)
 
 	provisionedDirectory, err := provisionDirectory(appConfig.BuildLocation)
 	if err != nil {
@@ -267,29 +268,49 @@ func (b *build) runBuildSync(config BuildConfig) error {
 		return err
 	}
 
-	b.stdpipes = newStdpipes(stdout, stderr)
+	b.stdoutpipe = newStdpipes(stdout)
+	b.stderrpipe = newStdpipes(stderr)
+
 	err = cmd.Start()
 	b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/started/token:%s", b.parentApp.Name(), b.Token()))
 
 	if err != nil {
-		cmd.Process.Kill()
+		cmd.Process.Kill() //nolint (errcheck)
 		return err
 	}
 	b.loginfof("Command started, pid=%d", cmd.Process.Pid)
 	b.state = buildStateStarted
 
+	pipesClosed := 0
+	endBuild := func() error {
+		b.loginfof("Build exited, waiting...")
+		err = cmd.Wait() // stdout/err have finished, just need to wait for the process to exit
+		if err != nil {
+			b.logwarnf("Build exited with non zero error code")
+			b.buildFinished(1)
+			return err
+		}
+		return nil
+	}
 runSyncLoop:
 	for {
 		select {
-		case <-b.stdpipes.Done:
-			b.loginfof("Build exited, waiting...")
-			err = cmd.Wait() // stdout/err have finished, just need to wait for the process to exit
-			if err != nil {
-				b.logwarnf("Build exited with non zero error code")
-				b.buildFinished(1)
-				return err
+		case <-b.stdoutpipe.Done:
+			pipesClosed++
+			if pipesClosed > 1 {
+				if err := endBuild(); err != nil {
+					return err
+				}
+				break runSyncLoop
 			}
-			break runSyncLoop
+		case <-b.stderrpipe.Done:
+			pipesClosed++
+			if pipesClosed > 1 {
+				if err := endBuild(); err != nil {
+					return err
+				}
+				break runSyncLoop
+			}
 
 		case <-time.After(config.Deadline):
 			b.logwarnf("Cancelling build as deadline reached")
@@ -306,7 +327,8 @@ runSyncLoop:
 			// to not flush their stdout/err before exiting, leaving stdout/err open forever
 			if hasPIDExited(cmd.Process.Pid) {
 				b.logcritf("Process exited but stdpipes are still open(zombied): %d", cmd.Process.Pid)
-				b.stdpipes.Close()
+				b.stdoutpipe.Close()
+				b.stderrpipe.Close()
 			}
 		}
 	}
@@ -344,7 +366,7 @@ func (b *build) Start() error {
 	var config BuildConfig
 	config = *b.config
 
-	if config.Deadline < time.Duration(time.Millisecond) {
+	if config.Deadline < time.Millisecond {
 		b.logwarnf("deadline not set in config, defaulting to 30 minutes")
 		config.Deadline = time.Minute * 30
 	}
@@ -405,8 +427,11 @@ func (b *build) Stop() error {
 		b.state.SetBuildState(buildStateFinished)
 		b.exitCode = 505
 		b.parentApp.SendEvent(fmt.Sprintf("/build/app:%s/complete/token:%s", b.parentApp.Name(), b.Token()))
-		if b.stdpipes != nil {
-			b.stdpipes.Done <- struct{}{}
+		if b.stdoutpipe != nil {
+			b.stdoutpipe.Done <- struct{}{}
+		}
+		if b.stderrpipe != nil {
+			b.stderrpipe.Done <- struct{}{}
 		}
 	} else {
 		pgid, err := syscall.Getpgid(b.cmd.Process.Pid)
@@ -443,7 +468,7 @@ func (b *build) Unref() {
 		b.m.Lock()
 		defer b.m.Unlock()
 		if b.buildDirectory != "" {
-			os.RemoveAll(b.buildDirectory)
+			os.RemoveAll(b.buildDirectory) //nolint (errcheck)
 			b.buildDirectory = ""
 		}
 	}
@@ -477,11 +502,11 @@ func (b *build) Stdout() (io.Reader, error) {
 		return nil, errors.New("b is nil")
 	}
 
-	if b.stdpipes == nil {
+	if b.stdoutpipe == nil {
 		return nil, ErrProcessNotStarted
 	}
 
-	return b.stdpipes.NewStdoutReader(), nil
+	return b.stdoutpipe.NewReader(), nil
 }
 
 // Stderr will return an io.Reader that will provide the stdin for this build
@@ -490,11 +515,11 @@ func (b *build) Stderr() (io.Reader, error) {
 		return nil, errors.New("b is nil")
 	}
 
-	if b.stdpipes == nil {
+	if b.stderrpipe == nil {
 		return nil, ErrProcessNotStarted
 	}
 
-	return b.stdpipes.NewStderrReader(), nil
+	return b.stderrpipe.NewReader(), nil
 }
 
 // ExitCode will return the process exit code, will error ErrProcessNotFinished
