@@ -238,9 +238,9 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 
 	output := `<html><head>
 	<title>NGBuild build output</title>
+	<link href="https://fonts.googleapis.com/css?family=Ubuntu|Ubuntu+Mono" rel="stylesheet">
 	<link rel="stylesheet" type="text/css" href="http://axiom.sh/axiom.css" />
 	<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/ngbuild/asciinema-player.css" />
-	<link rel="stylesheet" type="text/css" href="//fonts.googleapis.com/css?family=Ubuntu,Ubuntu+Mono" />
 	<style>
 	@keyframes flicker {
 	  0% {
