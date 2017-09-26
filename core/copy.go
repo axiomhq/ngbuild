@@ -26,16 +26,16 @@ func writeAll(f io.Writer, buf []byte) error {
 func CopyFile(src, dst string) error {
 	_, name := filepath.Split(src)
 	tmpFile, err := ioutil.TempFile(os.TempDir(), name)
-	defer tmpFile.Close()
+	defer tmpFile.Close() //nolint (errcheck)
 	if err != nil {
 		return err
 	}
 
 	tmpFileName := tmpFile.Name()
-	defer os.Remove(tmpFileName)
+	defer os.Remove(tmpFileName) //nolint (errcheck)
 
 	srcFile, err := os.Open(src)
-	defer srcFile.Close()
+	defer srcFile.Close() //nolint (errcheck)
 	if err != nil {
 		return err
 	}
@@ -48,12 +48,12 @@ func CopyFile(src, dst string) error {
 			return err
 		}
 
-		writeAll(tmpFile, buf[:n])
+		writeAll(tmpFile, buf[:n]) //nolint (errcheck)
 	}
 
 	// if we get here, tmpFile has a copy of src
-	tmpFile.Close()
-	srcFile.Close()
+	tmpFile.Close() //nolint (errcheck)
+	srcFile.Close() //nolint (errcheck)
 
 	return os.Rename(tmpFileName, dst)
 }

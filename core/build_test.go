@@ -252,7 +252,7 @@ func getSuccessfulIntegration() *MockIntegration {
 		dir := args.Get(1).(string)
 		//FIXME - this is lazy, stops tests running on windows, is bad in general, i'm so tired
 		cmd := exec.Command("cp", "testdata/failure.sh", "testdata/success.sh", "testdata/fiveminutes.sh", dir)
-		cmd.Run()
+		cmd.Run() //nolint (errcheck)
 	}).Return(nil)
 	return i
 }

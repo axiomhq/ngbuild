@@ -1,7 +1,7 @@
 package core
 
 // We need a way of essentially multiplexing one io.Reader over many io.Readers
-// this does that, it lets all integrations have their own stderr/stdout io.Readers
+// this does that, it lets all integrations have their own stderr/reader io.Readers
 // all of them contain all the data and will block their Reads as expected
 
 import (
@@ -12,16 +12,8 @@ import (
 	"sync/atomic"
 )
 
-const (
-	_ = iota
-	typeStdout
-	typeStderr
-)
-
 type stdreader struct {
-	m        sync.Mutex
 	parent   *stdpipes
-	pipetype int
 	position int
 }
 
@@ -38,7 +30,7 @@ func (s *stdreader) Read(p []byte) (n int, err error) {
 		return 0, errors.New("p is too small to read any data")
 	}
 
-	cachedData, closed := s.parent.GetCache(s.pipetype, s.position)
+	cachedData, closed := s.parent.GetCache(s.position)
 	if len(cachedData) == 0 && closed == true {
 		return 0, io.EOF
 	}
@@ -51,81 +43,44 @@ func (s *stdreader) Read(p []byte) (n int, err error) {
 type stdpipes struct {
 	m sync.RWMutex
 
-	stdout io.ReadCloser
-	stderr io.ReadCloser
+	reader     io.ReadCloser
+	readCache  bytes.Buffer
+	readWait   *sync.Cond
+	readClosed uint64
 
-	stdoutCache bytes.Buffer
-	stderrCache bytes.Buffer
-
-	stdoutWait *sync.Cond
-	stderrWait *sync.Cond
-
-	stdoutClosed uint64
-	stderrClosed uint64
+	cacheSize uint64
 
 	Done chan struct{}
 }
 
 // newStdpipes will return a new stdpipes structure to manage the given pipes
-func newStdpipes(stdoutPipe io.ReadCloser, stderrPipe io.ReadCloser) *stdpipes {
+func newStdpipes(readerPipe io.ReadCloser) *stdpipes {
 	pipes := &stdpipes{
-		stdoutWait: sync.NewCond(&sync.Mutex{}),
-		stderrWait: sync.NewCond(&sync.Mutex{}),
-
-		stdout: stdoutPipe,
-		stderr: stderrPipe,
+		readWait: sync.NewCond(&sync.Mutex{}),
+		reader:   readerPipe,
 
 		Done: make(chan struct{}, 1),
 	}
 
-	go pipes.readLoop(typeStdout)
-	go pipes.readLoop(typeStderr)
+	go pipes.readLoop()
 
 	return pipes
 }
 
-func (p *stdpipes) getclosed(pipetype int) bool {
-	switch pipetype {
-	case typeStdout:
-		return atomic.LoadUint64(&p.stdoutClosed) > 0
-	case typeStderr:
-		return atomic.LoadUint64(&p.stderrClosed) > 0
-	default:
-		return true
-	}
+func (p *stdpipes) getclosed() bool {
+	return atomic.LoadUint64(&p.readClosed) > 0
 }
 
-func (p *stdpipes) getpipe(pipetype int) io.Reader {
-	switch pipetype {
-	case typeStdout:
-		return p.stdout
-	case typeStderr:
-		return p.stderr
-	default:
-		return nil
-	}
+func (p *stdpipes) getpipe() io.Reader {
+	return p.reader
 }
 
-func (p *stdpipes) getcache(pipetype int) *bytes.Buffer {
-	switch pipetype {
-	case typeStdout:
-		return &p.stdoutCache
-	case typeStderr:
-		return &p.stderrCache
-	default:
-		return nil
-	}
+func (p *stdpipes) getcache() *bytes.Buffer {
+	return &p.readCache
 }
 
-func (p *stdpipes) getwaiter(pipetype int) *sync.Cond {
-	switch pipetype {
-	case typeStdout:
-		return p.stdoutWait
-	case typeStderr:
-		return p.stderrWait
-	default:
-		return nil
-	}
+func (p *stdpipes) getwaiter() *sync.Cond {
+	return p.readWait
 }
 
 func writeall(dst *bytes.Buffer, src []byte) error {
@@ -141,44 +96,43 @@ func writeall(dst *bytes.Buffer, src []byte) error {
 	return nil
 }
 
-func (p *stdpipes) readLoop(pipetype int) {
+func (p *stdpipes) readLoop() {
 	for shouldExit := false; shouldExit == false; {
 		var buf [1024]byte
 		var n int
-		var err, werr error
-		n, err = p.getpipe(pipetype).Read(buf[:])
+		var err error
 
-		p.m.Lock()
-		werr = writeall(p.getcache(pipetype), buf[:n])
-		if err != nil || werr != nil {
-			switch pipetype {
-			case typeStdout:
-				atomic.StoreUint64(&p.stdoutClosed, 1)
-			case typeStderr:
-				atomic.StoreUint64(&p.stderrClosed, 1)
+		if n, err = p.getpipe().Read(buf[:]); err != nil {
+			atomic.StoreUint64(&p.readClosed, 1)
+			if err != io.EOF {
+				logcritf("pipe read errored: %s", err)
 			}
 			shouldExit = true
 		}
 
-		waiter := p.getwaiter(pipetype)
+		p.m.Lock()
+		if err = writeall(p.getcache(), buf[:n]); err != nil {
+			atomic.StoreUint64(&p.readClosed, 1)
+			logcritf("pipe write errored: %s", err)
+
+			shouldExit = true
+		}
+
+		atomic.AddUint64(&p.cacheSize, uint64(n))
 		p.m.Unlock()
+
+		waiter := p.getwaiter()
 		waiter.Broadcast()
 	}
 
-	if p.getclosed(typeStdout) && p.getclosed(typeStderr) {
+	if p.getclosed() {
 		p.Done <- struct{}{}
 	}
 }
 
-// NewStdoutReader will return an io.Reader that can read from the stdout pipe
-func (p *stdpipes) NewStdoutReader() io.Reader {
-	reader := stdreader{parent: p, pipetype: typeStdout}
-	return &reader
-}
-
-// NewStderrReader will return an io.Reader that can read from the stderr pipe
-func (p *stdpipes) NewStderrReader() io.Reader {
-	reader := stdreader{parent: p, pipetype: typeStderr}
+// NewreaderReader will return an io.Reader that can read from the reader pipe
+func (p *stdpipes) NewReader() io.Reader {
+	reader := stdreader{parent: p}
 	return &reader
 }
 
@@ -188,60 +142,29 @@ func (p *stdpipes) hasNewData(pipetype, oldlen int) bool {
 	p.m.RLock()
 	defer p.m.RUnlock()
 
-	return p.getcache(pipetype).Len() > oldlen || p.getclosed(pipetype)
+	return p.getcache().Len() > oldlen || p.getclosed()
 }
 
 // GetCache will return the cache of the given pipetype at the given
 // seek position, it will block if position == len(totalCache)
-func (p *stdpipes) GetCache(pipetype, position int) (buf []byte, closed bool) {
-	p.m.Lock()
-	defer p.m.Unlock()
+func (p *stdpipes) GetCache(position int) (buf []byte, closed bool) {
+	defer func() {
+		p.m.Unlock()
+	}()
 
-	if oldlen := p.getcache(pipetype).Len(); oldlen == position {
-		// early exit if we are already closed
-		if p.getclosed(pipetype) {
-			return nil, true
-		}
-
-		// reached end of current cache, wait for new data
-		waiter := p.getwaiter(pipetype)
-		waiter.L.Lock()
-
-		// this is a little messy, normally you do
-		/* for checkCondition() == false {
-		 *     waiter.Wait()
-		 * }
-		 */
-		// but we need to hold a lock during checkCondition()
-		// this requires that we hold the mutex from our previous lock until we have done our first check
-		// this stops a race between other instances of GetCache() getting the p.m lock and not unlocking
-		// because we have the waiter.L lock
-		firstLoop := true
-		for {
-			if firstLoop == true {
-				firstLoop = false
-			} else {
-				p.m.Lock()
-			}
-
-			if p.getcache(pipetype).Len() > oldlen || p.getclosed(pipetype) {
-				p.m.Unlock()
-				break
-			}
-			p.m.Unlock()
-
-			waiter.Wait()
-		}
-
-		// more data or we closed
-		p.m.Lock()
-		waiter.L.Unlock()
+	// if the current position is at the end of the cache and the input pipe isn't closed
+	// then we need to wait on new data.
+	p.readWait.L.Lock()
+	for uint64(position) >= atomic.LoadUint64(&p.cacheSize) && p.getclosed() == false {
+		p.readWait.Wait()
 	}
+	p.m.Lock()
+	p.readWait.L.Unlock()
 
-	cache := p.getcache(pipetype).Bytes()
+	cache := p.getcache().Bytes()
 	if len(cache) <= position {
 		buf = nil
-		closed = p.getclosed(pipetype)
+		closed = p.getclosed()
 	} else {
 		cache = cache[position:]
 		buf = make([]byte, len(cache))
@@ -252,7 +175,6 @@ func (p *stdpipes) GetCache(pipetype, position int) (buf []byte, closed bool) {
 }
 
 func (p *stdpipes) Close() {
-	p.stdout.Close()
-	p.stderr.Close()
+	p.reader.Close() //nolint (errcheck)
 	p.Done <- struct{}{}
 }

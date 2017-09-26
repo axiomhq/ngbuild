@@ -19,8 +19,8 @@ func TestCopyFile(t *testing.T) {
 	}
 
 	srcFile, err := ioutil.TempFile(os.TempDir(), "testcopyfile")
-	defer srcFile.Close()
-	defer os.Remove(srcFile.Name())
+	defer srcFile.Close()           //nolint (errcheck)
+	defer os.Remove(srcFile.Name()) //nolint (errcheck)
 
 	require.NoError(err)
 	dstLocation := srcFile.Name() + "destFile"
@@ -28,7 +28,7 @@ func TestCopyFile(t *testing.T) {
 	require.NoError(writeAll(srcFile, []byte(testData)))
 	require.NoError(srcFile.Close())
 	require.NoError(CopyFile(srcFile.Name(), dstLocation))
-	defer os.Remove(dstLocation)
+	defer os.Remove(dstLocation) //nolint (errcheck)
 
 	copiedFile, err := ioutil.ReadFile(dstLocation)
 	require.NoError(err)
