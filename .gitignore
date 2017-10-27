@@ -1,2 +1,4 @@
 ngbuild
+ngbuild.json
+apps/
 integrations/slack/bin

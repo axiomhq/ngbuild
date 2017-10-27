@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"io/ioutil"
+	"sync"
 )
 
 // SetMetadata will set metadata
@@ -62,6 +63,7 @@ func UnmarshalBuildConfig(filename string) (*BuildConfig, error) {
 		return nil, err
 	}
 	conf := marshalledConf.Config
+	conf.m = &sync.RWMutex{}
 	conf.metadata = make(map[string]string)
 	// there isn't a nice way of copying a map in go.. so here we go
 	for key, value := range *marshalledConf.Metadata {
