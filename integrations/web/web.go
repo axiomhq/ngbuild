@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/buildkite/terminal"
 	"github.com/watchly/ngbuild/core"
 )
 
@@ -236,11 +237,15 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	stdoutHTML := terminal.Render(stdoutRaw)
+	stderrHTML := terminal.Render(stderrRaw)
+
 	output := `<html><head>
 	<title>NGBuild build output</title>
 	<link href="https://fonts.googleapis.com/css?family=Ubuntu|Ubuntu+Mono" rel="stylesheet">
 	<link rel="stylesheet" type="text/css" href="http://axiom.sh/axiom.css" />
 	<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/ngbuild/asciinema-player.css" />
+	<link rel="stylesheet" type="text/css" href="https://storage.googleapis.com/ngbuild/terminal.css" />
 	<style>
 	@keyframes flicker {
 	  0% {
@@ -513,7 +518,7 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 		color: #cccccc;
 		padding: 0.5em;
 		width: 100%;
-	}	
+	}
 	</style>
 	<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.7.0/styles/tomorrow-night-eighties.min.css">
 	<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.7.0/highlight.min.js"></script>
@@ -529,14 +534,10 @@ func (w *Web) buildStatus(resp http.ResponseWriter, req *http.Request) {
 	output += fmt.Sprintf(`<div class="crt"><asciinema-player src="%s.json" theme="axiom" autoplay="yes please" speed=1></asciinema-player></div>`, baseURL)
 
 	output += "<h3>Stdout:</h3>"
-	output += `<pre><code class="nohighlight">`
-	output += html.EscapeString((string)(stdoutRaw))
-	output += `</code></pre>`
+	output += (string)(stdoutHTML)
 
 	output += "<h3>Stderr:</h3>"
-	output += `<pre><code class="nohighlight">`
-	output += html.EscapeString((string)(stderrRaw))
-	output += `</code></pre>`
+	output += (string)(stderrHTML)
 
 	output += "<h3>BuildConfig:</h3>"
 	output += `<pre><code class="json">`

@@ -1,8 +1,13 @@
 {
 	"ImportPath": "github.com/watchly/ngbuild",
-	"GoVersion": "go1.7",
-	"GodepVersion": "v75",
+	"GoVersion": "go1.9",
+	"GodepVersion": "v79",
 	"Deps": [
+		{
+			"ImportPath": "github.com/buildkite/terminal",
+			"Comment": "v3.0.5-5-gb0f19a1",
+			"Rev": "b0f19a112a86c759d1c0469516a6377a8e634558"
+		},
 		{
 			"ImportPath": "github.com/google/go-github/github",
 			"Rev": "ed33550bbf49ddffcc36e1309d3f58ed0b6c2305"
